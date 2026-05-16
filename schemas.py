@@ -1,5 +1,6 @@
 # schemas.py
 from typing import Optional, TypedDict, List, Union
+from typing_extensions import NotRequired
 
 
 class NetworkUpDownEvent(TypedDict):
@@ -106,6 +107,6 @@ class Graph(TypedDict):
     hosts: dict
     networks: dict
     areas: List[Union[int, str]]
-    watcher_name: Optional[str]
+    watcher_name: NotRequired[Optional[str]]
     protocol: str  # ospf, ospfv3, isis, yaml
     is_from_watcher: bool  # whether from watcher
