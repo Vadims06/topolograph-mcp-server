@@ -59,6 +59,22 @@ def get_auth_headers():
     }
 
 
+def raise_for_status_with_context(resp, graph_time: str):
+    """Like resp.raise_for_status(), but on error transfers the backend's own
+    message (the JSON 'detail' field) and appends the graph_time, so the agent
+    can report exactly what the API said and which snapshot it concerned.
+    """
+    if resp.ok:
+        return
+    try:
+        body = resp.json()
+        detail = (body.get("detail") or body.get("error")) if isinstance(body, dict) else None
+    except ValueError:
+        detail = None
+    message = (detail or resp.text or "request failed").strip().rstrip(".")
+    raise ValueError(f"{message} in graph_time {graph_time}")
+
+
 @mcp.tool
 def get_graph_by_time(graph_time: str):
     """
@@ -394,7 +410,7 @@ def get_edges(
         params.update(edge_query_params)
 
     resp = requests.get(url, headers=get_auth_headers(), params=params)
-    resp.raise_for_status()
+    raise_for_status_with_context(resp, graph_time)
     return resp.json()
 
 
@@ -433,7 +449,7 @@ def get_shortest_path(
         payload["removedEdgesAsNodePairsFromSptPath_ll_in_ll"] = removed_edges
 
     resp = requests.post(url, json=payload, headers=get_auth_headers())
-    resp.raise_for_status()
+    raise_for_status_with_context(resp, graph_time)
     return resp.json()
 
 
