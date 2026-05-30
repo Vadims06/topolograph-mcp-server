@@ -230,6 +230,9 @@ def get_network_events(
     Description:
         This tool returns networks events: network up/down and network cost change events.
         Use this tool only to get details about networks events.
+        Events exist ONLY for watcher-monitored graphs (is_from_watcher=true).
+        Manually uploaded or YAML graphs are not monitored and have no events;
+        first use get_all_graphs and pick a graph_time with is_from_watcher=true.
         Treat any cost change to or from -1 as down (падение) or up (восстановление) event.
 
     Input fields:
@@ -271,6 +274,9 @@ def get_adjacency_events(
     Description:
         This tool returns links/adjacencies events including nodes/hosts up/down events.
         Use this tool only to get details about nodes/hosts events.
+        Events exist ONLY for watcher-monitored graphs (is_from_watcher=true).
+        Manually uploaded or YAML graphs are not monitored and have no events;
+        first use get_all_graphs and pick a graph_time with is_from_watcher=true.
         Treat any cost change to or from -1 as down (падение) or up (восстановление) event.
 
     Input fields:
@@ -319,6 +325,9 @@ def get_nodes(
         Returns structured node data including hostname, system ID, network count,
         areas, and IS-IS flag. Supports pre-filtering by protocol, watcher origin,
         and area before returning results.
+        Note: 'network count' is the number of prefixes/networks on a node, NOT its
+        neighbor/adjacency count. To count neighbors per router, use get_edges and
+        count edges per src_node — do not derive neighbor counts from this tool.
 
     Input fields:
         graph_time (str): The graph time identifier
@@ -368,6 +377,9 @@ def get_edges(
         Returns a paginated list of edges. Supports graph-level pre-filters (protocol,
         watcher, area) and per-edge attribute filters. Useful for queries like
         "all IS-IS L1 edges" or "edges with max_rsrv_link_bw < 10Gbps".
+        Edges are the source of neighbor/adjacency data: to find a router's neighbor
+        count, fetch edges and count those with that router as src_node. Results are
+        paginated — read all pages (see pagination.total_pages) before counting.
 
         Attribute filters use exact match or range operators:
           weight=10, temetric__gt=100, unreserved_bw_0__lt=1000000000
