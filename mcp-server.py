@@ -25,7 +25,7 @@ mcp = FastMCP(
     instructions="""
               Use this MCP in order to get details about OSPF/IS-IS domain.
               Tool provides informations about number of nodes and links are in OSPF/IS-IS domain""",
-    version="1.0.0",
+    version="1.0.2",
 )
 
 # Base URL for your Flask+Connexion API
@@ -290,34 +290,43 @@ def get_adjacency_events(
 @mcp.tool
 def get_nodes(
     graph_time: str,
-    name: Optional[str] = None,
-    node_query_params: Optional[dict] = None,
-) -> list[dict]:
+    protocol: Optional[str] = None,
+    watcher: Optional[bool] = None,
+    area: Optional[str] = None,
+    page: int = 1,
+    per_page: int = 50,
+) -> dict:
     """
-    Get nodes from diagram with optional filtering.
+    Get a paginated list of nodes/routers from a graph.
 
     Description:
-        This tool retrieves nodes with properties from a diagram/graph, allowing filtering by name
-        or custom query parameters.
+        Returns structured node data including hostname, system ID, network count,
+        areas, and IS-IS flag. Supports pre-filtering by protocol, watcher origin,
+        and area before returning results.
 
     Input fields:
-        graph_time (str): The diagram time
-        name (str, optional): Select first node with such name
-        node_query_params (dict, optional): Custom query parameters for filtering nodes
+        graph_time (str): The graph time identifier
+        protocol (str, optional): Filter — only return if graph matches protocol (ospf, ospfv3, isis, yaml)
+        watcher (bool, optional): Filter — true for watcher-uploaded graphs, false for manually parsed
+        area (str, optional): Filter — only return if graph contains this area (e.g. "0", "0.0.0.1", "49.0001")
+        page (int): Page number, 1-indexed (default: 1)
+        per_page (int): Items per page (default: 50)
 
     Output fields:
-        list[dict]: A list of dictionaries containing node information
+        dict with keys:
+            items: list of nodes with node_id, hostname, systemid, networks_count, areas, is_isis
+            pagination: page, per_page, total, total_pages
 
-    Equivalent to GET /diagram/{graph_time}/nodes.
+    Equivalent to GET /graph/{graph_time}/nodes.
     """
-    url = f"{API_BASE}/diagram/{graph_time}/nodes"
-    params = {}
-    if name:
-        params["name"] = name
-    if node_query_params:
-        # Handle deepObject style query parameters
-        for key, value in node_query_params.items():
-            params[f"node_query_params[{key}]"] = value
+    url = f"{API_BASE}/graph/{graph_time}/nodes"
+    params: dict = {"page": page, "per_page": per_page}
+    if protocol:
+        params["protocol"] = protocol
+    if watcher is not None:
+        params["watcher"] = str(watcher).lower()
+    if area:
+        params["area"] = area
 
     resp = requests.get(url, headers=get_auth_headers(), params=params)
     resp.raise_for_status()
@@ -329,36 +338,60 @@ def get_edges(
     graph_time: str,
     src_node: Optional[str] = None,
     dst_node: Optional[str] = None,
+    protocol: Optional[str] = None,
+    watcher: Optional[bool] = None,
+    area: Optional[str] = None,
     edge_query_params: Optional[dict] = None,
-) -> list[dict]:
+    page: int = 1,
+    per_page: int = 50,
+) -> dict:
     """
-    Get edges from diagram with optional filtering.
+    Get edges from a graph with optional filtering.
 
     Description:
-        This tool retrieves edges from a diagram/graph, allowing filtering by source/destination nodes
-        or custom query parameters. It's useful for getting edge properties, for example, cost, bandwidth, etc.
+        Returns a paginated list of edges. Supports graph-level pre-filters (protocol,
+        watcher, area) and per-edge attribute filters. Useful for queries like
+        "all IS-IS L1 edges" or "edges with max_rsrv_link_bw < 10Gbps".
+
+        Attribute filters use exact match or range operators:
+          weight=10, temetric__gt=100, unreserved_bw_0__lt=1000000000
+        TE attributes (when present): temetric, admin_group, max_link_bw,
+          max_rsrv_link_bw, unreserved_bw_0..7
+        IS-IS: isis_level=1 or isis_level=2
+        User-defined attributes (e.g. isp_provider=verizon) are also supported.
 
     Input fields:
-        graph_time (str): The diagram time
-        src_node (str, optional): Source node name for filtering
-        dst_node (str, optional): Destination node name for filtering
-        edge_query_params (dict, optional): Custom query parameters for filtering edges
+        graph_time (str): The graph time identifier
+        src_node (str, optional): Filter edges by source node name
+        dst_node (str, optional): Filter edges by destination node name
+        protocol (str, optional): Graph-level filter (ospf, ospfv3, isis, yaml)
+        watcher (bool, optional): Graph-level filter — watcher-uploaded vs manually parsed
+        area (str, optional): Graph-level filter by area
+        edge_query_params (dict, optional): Edge attribute filters (flat key=value pairs)
+        page (int): Page number, 1-indexed (default: 1)
+        per_page (int): Items per page (default: 50)
 
     Output fields:
-        list[dict]: A list of dictionaries containing edge information
+        dict with keys:
+            items: list of edges with src, dst, weight, and optional TE/IS-IS/user-defined attrs
+            pagination: page, per_page, total, total_pages
 
-    Equivalent to GET /diagram/{graph_time}/edges.
+    Equivalent to GET /graph/{graph_time}/edges.
     """
-    url = f"{API_BASE}/diagram/{graph_time}/edges"
-    params = {}
+    url = f"{API_BASE}/graph/{graph_time}/edges"
+    params: dict = {"page": page, "per_page": per_page}
     if src_node:
         params["src_node"] = src_node
     if dst_node:
         params["dst_node"] = dst_node
+    if protocol:
+        params["protocol"] = protocol
+    if watcher is not None:
+        params["watcher"] = str(watcher).lower()
+    if area:
+        params["area"] = area
     if edge_query_params:
-        # Handle deepObject style query parameters
-        for key, value in edge_query_params.items():
-            params[f"edge_query_params[{key}]"] = value
+        params.update(edge_query_params)
 
     resp = requests.get(url, headers=get_auth_headers(), params=params)
     resp.raise_for_status()
