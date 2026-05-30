@@ -13,7 +13,6 @@ from schemas import (
     NetworkEventsResponse,
     AdjacencyEventsResponse,
     ShortestPathResponse,
-    Graph
 )
 
 
@@ -84,7 +83,7 @@ def require_watcher_graph(graph_time: str):
     if not resp.json().get("is_from_watcher"):
         raise ValueError(
             f"graph_time {graph_time} is not monitored by a watcher (manually "
-            f"uploaded), so it has no events; use a graph with is_from_watcher=true"
+            f"uploaded), so it has no events; use a graph with is_monitored=true"
         )
 
 
@@ -105,34 +104,48 @@ def get_graph_by_time(graph_time: str):
 def get_all_graphs(
     protocol: Optional[str] = None,
     area: Optional[str] = None,
-    watcher_name: Optional[str] = None,
-    latest_only: bool = False
-) -> List[Graph]:
+    is_monitored: Optional[bool] = None,
+    name: Optional[str] = None,
+    latest_only: bool = False,
+    page: int = 1,
+    per_page: int = 50,
+) -> dict:
     """
     Description:
-        This tool retrieves a list of available graphs from the Topolograph API with optional filtering
-        by protocol, area, watcher name, and latest only option.
-        This tool is a first step for all analysis.
+        This tool retrieves available graphs from the Topolograph API with optional
+        filtering. This tool is a first step for all analysis.
+        Each graph reports two monitoring flags:
+          - is_monitored: the graph was received from a watcher (vs manually uploaded).
+            Only monitored graphs have events; use is_monitored=true when answering
+            change/event questions.
+          - is_live: the source watcher is currently sending heartbeats.
 
     Input fields:
         protocol (str, optional): Filter graphs by protocol (ospf, ospfv3, isis, yaml)
         area (str, optional): Filter graphs by area number
-        watcher_name (str, optional): Filter graphs by watcher name
-        latest_only (bool, optional): Return only the latest graph for each unique protocol and area combination
+        is_monitored (bool, optional): true = only watcher-received graphs, false = only manually uploaded
+        name (str, optional): Case-insensitive substring over graph_time or watcher_name (e.g. "before_maintenance")
+        latest_only (bool, optional): Return only the single newest graph among those matching the filters
+        page (int): Page number, 1-indexed (default: 1)
+        per_page (int): Items per page (default: 50)
 
     Output fields:
-        List[Graph]: A list of graphs matching the filter criteria.
+        dict with keys:
+            items: list of graphs, each with is_monitored and is_live flags
+            pagination: page, per_page, total, total_pages
 
     Equivalent to GET /graph with query parameters.
     """
     url = f"{API_BASE}/graph"
-    params = {}
+    params: dict = {"page": page, "per_page": per_page}
     if protocol:
         params["protocol"] = protocol
     if area:
         params["area"] = area
-    if watcher_name:
-        params["watcher_name"] = watcher_name
+    if is_monitored is not None:
+        params["is_monitored"] = str(is_monitored).lower()
+    if name:
+        params["name"] = name
     if latest_only:
         params["latest_only"] = "true"
 
@@ -243,9 +256,10 @@ def get_network_events(
     Description:
         This tool returns networks events: network up/down and network cost change events.
         Use this tool only to get details about networks events.
-        Events exist ONLY for watcher-monitored graphs (is_from_watcher=true).
+        Events exist ONLY for watcher-monitored graphs (is_monitored=true).
         Manually uploaded or YAML graphs are not monitored and have no events;
-        first use get_all_graphs and pick a graph_time with is_from_watcher=true.
+        first call get_all_graphs(is_monitored=true, latest_only=true) to pick a
+        monitored graph_time.
         Treat any cost change to or from -1 as down (падение) or up (восстановление) event.
 
     Input fields:
@@ -288,9 +302,10 @@ def get_adjacency_events(
     Description:
         This tool returns links/adjacencies events including nodes/hosts up/down events.
         Use this tool only to get details about nodes/hosts events.
-        Events exist ONLY for watcher-monitored graphs (is_from_watcher=true).
+        Events exist ONLY for watcher-monitored graphs (is_monitored=true).
         Manually uploaded or YAML graphs are not monitored and have no events;
-        first use get_all_graphs and pick a graph_time with is_from_watcher=true.
+        first call get_all_graphs(is_monitored=true, latest_only=true) to pick a
+        monitored graph_time.
         Treat any cost change to or from -1 as down (падение) or up (восстановление) event.
 
     Input fields:
