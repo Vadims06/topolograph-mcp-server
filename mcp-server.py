@@ -75,6 +75,19 @@ def raise_for_status_with_context(resp, graph_time: str):
     raise ValueError(f"{message} in graph_time {graph_time}")
 
 
+def require_watcher_graph(graph_time: str):
+    """Reject event queries on non-watcher graphs. Manually uploaded / YAML graphs
+    are not monitored and have no events; reporting 'no events' for them is misleading.
+    """
+    resp = requests.get(f"{API_BASE}/graph/{graph_time}", headers=get_auth_headers())
+    raise_for_status_with_context(resp, graph_time)
+    if not resp.json().get("is_from_watcher"):
+        raise ValueError(
+            f"graph_time {graph_time} is not monitored by a watcher (manually "
+            f"uploaded), so it has no events; use a graph with is_from_watcher=true"
+        )
+
+
 @mcp.tool
 def get_graph_by_time(graph_time: str):
     """
@@ -248,6 +261,7 @@ def get_network_events(
 
     Equivalent to GET /events/{graph_time}/networks.
     """
+    require_watcher_graph(graph_time)
     url = f"{API_BASE}/events/{graph_time}/networks"
     params = {}
     if last_minutes:
@@ -294,6 +308,7 @@ def get_adjacency_events(
 
     Equivalent to GET /events/{graph_time}/adjacency.
     """
+    require_watcher_graph(graph_time)
     url = f"{API_BASE}/events/{graph_time}/adjacency"
     params = {}
     if last_minutes:
