@@ -12,6 +12,7 @@ import logging
 from schemas import (
     NetworkEventsResponse,
     AdjacencyEventsResponse,
+    EventsTimelineResponse,
     ShortestPathResponse,
 )
 
@@ -24,7 +25,7 @@ mcp = FastMCP(
     instructions="""
               Use this MCP in order to get details about OSPF/IS-IS domain.
               Tool provides informations about number of nodes and links are in OSPF/IS-IS domain""",
-    version="1.0.2",
+    version="1.1.0",
 )
 
 # Base URL for your Flask+Connexion API
@@ -236,6 +237,7 @@ def get_graph_status(graph_time: str) -> dict:
                 - all_host_up_down_events: Count of all host up/down events
                 - network_up_down_events: Count of network up/down events (Падение сети)
                 - adjacency_cost_change_events: Count of adjacency cost change events (изменение стоимости линка)
+                - top_unstable_devices: Top-N [{device, event_count}] sorted desc (самые нестабильные устройства)
 
     Equivalent to GET /graph/{graph_time}/status.
     """
@@ -325,6 +327,59 @@ def get_adjacency_events(
     """
     require_watcher_graph(graph_time)
     url = f"{API_BASE}/events/{graph_time}/adjacency"
+    params = {}
+    if last_minutes:
+        params["last_minutes"] = last_minutes
+    else:
+        if start_time:
+            params["start_time"] = start_time
+        if end_time:
+            params["end_time"] = end_time
+
+    resp = requests.get(url, headers=get_auth_headers(), params=params)
+    resp.raise_for_status()
+    return resp.json()
+
+
+@mcp.tool
+def get_events_timeline(
+    graph_time: str,
+    start_time: Optional[str] = None,
+    end_time: Optional[str] = None,
+    last_minutes: Optional[int] = None,
+) -> EventsTimelineResponse:
+    """
+    Description:
+        This tool returns node/host up/down events already grouped into
+        chronological time waves (server-side), so you can narrate a network
+        incident ("instability started at T from device X; a flapping burst
+        from device Y; reconverged at T+n") without scanning hundreds of raw
+        events. Use this instead of get_adjacency_events when the user asks
+        "what happened", "summarise the incident", "how many bursts/waves".
+        Events exist ONLY for watcher-monitored graphs (is_monitored=true);
+        first call get_all_graphs(is_monitored=true, latest_only=true).
+        Returns wave summaries only (no nested event arrays): to get a wave's
+        individual events, call get_adjacency_events with that wave's
+        start_ts/end_ts.
+
+    Input fields:
+        graph_time (str): The graph time to filter events.
+        start_time (str, optional): Start time in ISO format (e.g., 2025-06-30T20:00:00Z)
+        end_time (str, optional): End time in ISO format. Defaults to current time if not provided.
+        last_minutes (int, optional): Look back this many minutes; overrides start_time/end_time.
+
+    Output fields:
+        EventsTimelineResponse: A dictionary with keys:
+            - graph_time, watcher_name
+            - gap_multiplier, median_gap_s: how the grouping was computed
+            - waves: list of per-wave summaries, each with wave_number, start_ts,
+              end_ts, duration_s, event_count, density, distinct_devices,
+              trigger_device, pattern ("flapping"/"one_time"), converged
+
+    Equivalent to GET /events/{graph_time}/adjacency/timeline.
+    """
+    require_watcher_graph(graph_time)
+    url = f"{API_BASE}/events/{graph_time}/adjacency/timeline"
     params = {}
     if last_minutes:
         params["last_minutes"] = last_minutes

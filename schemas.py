@@ -95,6 +95,27 @@ class AdjacencyEventsResponse(TypedDict):
     adjacency_cost_change_events: List[LinkMetricChangeEvent]
 
 
+class TimelineWave(TypedDict):
+    wave_number: int
+    start_ts: str
+    end_ts: str
+    duration_s: float
+    event_count: int
+    density: float
+    distinct_devices: int
+    trigger_device: str
+    pattern: str  # "flapping" | "one_time"
+    converged: bool
+
+
+class EventsTimelineResponse(TypedDict):
+    graph_time: str
+    watcher_name: Optional[str]
+    gap_multiplier: float
+    median_gap_s: float
+    waves: List[TimelineWave]
+
+
 class ShortestPathResponse(TypedDict):
     spt_path_nodes_name_as_ll_in_ll: List[List[str]]
     cost: int
