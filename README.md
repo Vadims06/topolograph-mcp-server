@@ -74,6 +74,14 @@ The MCP server will be available at `http://localhost:8000/mcp` and automaticall
 - `get_shortest_path`: Calculate shortest paths between nodes
 - `upload_graph`: Upload new graphs to the API
 
+## Wave patterns (`get_events_timeline`)
+
+`get_events_timeline` groups node/host up/down events into chronological
+**waves**, each labelled with a `pattern` (`outage` / `flap` / `up`). For the
+full field reference and the `pattern` ↔ graph-status mapping, see the docs:
+
+➡️ **[Events Timeline (Waves)](https://docs.topolograph.com/monitoring/events-timeline/)**
+
 ## License
 
 See LICENSE file for details.

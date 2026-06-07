@@ -347,6 +347,8 @@ def get_events_timeline(
     start_time: Optional[str] = None,
     end_time: Optional[str] = None,
     last_minutes: Optional[int] = None,
+    page: int = 1,
+    per_page: int = 20,
 ) -> EventsTimelineResponse:
     """
     Description:
@@ -367,20 +369,26 @@ def get_events_timeline(
         start_time (str, optional): Start time in ISO format (e.g., 2025-06-30T20:00:00Z)
         end_time (str, optional): End time in ISO format. Defaults to current time if not provided.
         last_minutes (int, optional): Look back this many minutes; overrides start_time/end_time.
+        page (int, optional): Page number (1-indexed) over the waves list.
+        per_page (int, optional): Number of waves per page.
 
     Output fields:
         EventsTimelineResponse: A dictionary with keys:
             - graph_time, watcher_name
-            - gap_multiplier, median_gap_s: how the grouping was computed
+            - gap_multiplier, median_gap_sec: how the grouping was computed
             - waves: list of per-wave summaries, each with wave_number, start_ts,
-              end_ts, duration_s, event_count, density, distinct_devices,
-              trigger_device, pattern ("flapping"/"one_time"), converged
+              end_ts (ISO 8601, reusable as start_time/end_time), duration_sec,
+              event_count, distinct_devices, trigger_device,
+              pattern ("outage" left down / "flap" down then up / "up" only ups),
+              converged (recovery seen within the queried window; a recovery
+              after end_time is not counted)
+            - pagination: page, per_page, total, total_pages
 
     Equivalent to GET /events/{graph_time}/adjacency/timeline.
     """
     require_watcher_graph(graph_time)
     url = f"{API_BASE}/events/{graph_time}/adjacency/timeline"
-    params = {}
+    params = {"page": page, "per_page": per_page}
     if last_minutes:
         params["last_minutes"] = last_minutes
     else:
@@ -412,13 +420,13 @@ def get_nodes(
         and area before returning results.
         Note: 'network count' is the number of prefixes/networks on a node, NOT its
         neighbor/adjacency count. To count neighbors per router, use get_edges and
-        count edges per src_node — do not derive neighbor counts from this tool.
+        count edges per src_node; do not derive neighbor counts from this tool.
 
     Input fields:
         graph_time (str): The graph time identifier
-        protocol (str, optional): Filter — only return if graph matches protocol (ospf, ospfv3, isis, yaml)
-        watcher (bool, optional): Filter — true for watcher-uploaded graphs, false for manually parsed
-        area (str, optional): Filter — only return if graph contains this area (e.g. "0", "0.0.0.1", "49.0001")
+        protocol (str, optional): Filter: only return if graph matches protocol (ospf, ospfv3, isis, yaml)
+        watcher (bool, optional): Filter: true for watcher-uploaded graphs, false for manually parsed
+        area (str, optional): Filter: only return if graph contains this area (e.g. "0", "0.0.0.1", "49.0001")
         page (int): Page number, 1-indexed (default: 1)
         per_page (int): Items per page (default: 50)
 
@@ -464,7 +472,7 @@ def get_edges(
         "all IS-IS L1 edges" or "edges with max_rsrv_link_bw < 10Gbps".
         Edges are the source of neighbor/adjacency data: to find a router's neighbor
         count, fetch edges and count those with that router as src_node. Results are
-        paginated — read all pages (see pagination.total_pages) before counting.
+        paginated; read all pages (see pagination.total_pages) before counting.
 
         Attribute filters use exact match or range operators:
           weight=10, temetric__gt=100, unreserved_bw_0__lt=1000000000
@@ -478,7 +486,7 @@ def get_edges(
         src_node (str, optional): Filter edges by source node name
         dst_node (str, optional): Filter edges by destination node name
         protocol (str, optional): Graph-level filter (ospf, ospfv3, isis, yaml)
-        watcher (bool, optional): Graph-level filter — watcher-uploaded vs manually parsed
+        watcher (bool, optional): Graph-level filter: watcher-uploaded vs manually parsed
         area (str, optional): Graph-level filter by area
         edge_query_params (dict, optional): Edge attribute filters (flat key=value pairs)
         page (int): Page number, 1-indexed (default: 1)

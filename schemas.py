@@ -97,23 +97,30 @@ class AdjacencyEventsResponse(TypedDict):
 
 class TimelineWave(TypedDict):
     wave_number: int
-    start_ts: str
-    end_ts: str
-    duration_s: float
+    start_ts: str  # ISO 8601, e.g. 2025-05-10T17:08:17.707000Z
+    end_ts: str    # ISO 8601, e.g. 2025-05-10T17:08:17.707000Z
+    duration_sec: float
     event_count: int
-    density: float
     distinct_devices: int
     trigger_device: str
-    pattern: str  # "flapping" | "one_time"
+    pattern: str  # "outage" | "flap" | "up"
     converged: bool
+
+
+class Pagination(TypedDict):
+    page: int
+    per_page: int
+    total: int
+    total_pages: int
 
 
 class EventsTimelineResponse(TypedDict):
     graph_time: str
     watcher_name: Optional[str]
     gap_multiplier: float
-    median_gap_s: float
+    median_gap_sec: float
     waves: List[TimelineWave]
+    pagination: Pagination
 
 
 class ShortestPathResponse(TypedDict):
