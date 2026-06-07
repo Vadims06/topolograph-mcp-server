@@ -10,7 +10,7 @@ class NetworkUpDownEvent(TypedDict):
     watcher_time: str
     event_status: str
     watcher_name: str
-    level_number: int
+    level_number: NotRequired[Union[int, str]]
     event_name: str
     event_object: str
     area_num: str
@@ -31,7 +31,7 @@ class NetworkMetricChangeEvent(TypedDict):
     watcher_time: str
     event_status: str
     watcher_name: str
-    level_number: int
+    level_number: NotRequired[Union[int, str]]
     event_name: str
     event_object: str
     area_num: str
@@ -52,7 +52,7 @@ class HostUpDownEvent(TypedDict):
     watcher_time: str
     event_status: str
     watcher_name: str
-    level_number: int
+    level_number: NotRequired[Union[int, str]]
     event_name: str
     event_object: str
     area_num: str
@@ -71,7 +71,7 @@ class LinkMetricChangeEvent(TypedDict):
     watcher_time: str
     event_status: str
     watcher_name: str
-    level_number: int
+    level_number: NotRequired[Union[int, str]]
     event_name: str
     event_object: str
     area_num: str
