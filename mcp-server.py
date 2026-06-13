@@ -408,6 +408,10 @@ def get_nodes(
     protocol: Optional[str] = None,
     watcher: Optional[bool] = None,
     area: Optional[str] = None,
+    abr: Optional[bool] = None,
+    asbr: Optional[bool] = None,
+    overload: Optional[bool] = None,
+    attached: Optional[bool] = None,
     page: int = 1,
     per_page: int = 50,
 ) -> dict:
@@ -416,8 +420,8 @@ def get_nodes(
 
     Description:
         Returns structured node data including hostname, system ID, network count,
-        areas, and IS-IS flag. Supports pre-filtering by protocol, watcher origin,
-        and area before returning results.
+        areas, IS-IS flag, and node_attributes (role flags). Supports pre-filtering by
+        protocol, watcher origin, area, and node role flag before returning results.
         Note: 'network count' is the number of prefixes/networks on a node, NOT its
         neighbor/adjacency count. To count neighbors per router, use get_edges and
         count edges per src_node; do not derive neighbor counts from this tool.
@@ -427,12 +431,17 @@ def get_nodes(
         protocol (str, optional): Filter: only return if graph matches protocol (ospf, ospfv3, isis, yaml)
         watcher (bool, optional): Filter: true for watcher-uploaded graphs, false for manually parsed
         area (str, optional): Filter: only return if graph contains this area (e.g. "0", "0.0.0.1", "49.0001")
+        abr (bool, optional): OSPF role filter — true returns only Area Border Routers (false: only non-ABRs)
+        asbr (bool, optional): OSPF role filter — true returns only AS Boundary Routers (false: only non-ASBRs)
+        overload (bool, optional): IS-IS filter — true returns only routers with the overload (OL) bit set
+        attached (bool, optional): IS-IS filter — true returns only routers with the attached (ATT) bit set
         page (int): Page number, 1-indexed (default: 1)
         per_page (int): Items per page (default: 50)
 
     Output fields:
         dict with keys:
-            items: list of nodes with node_id, hostname, systemid, networks_count, areas, is_isis
+            items: list of nodes with node_id, hostname, systemid, networks_count, areas, is_isis,
+                   node_attributes (role flags: {"abr":1,"asbr":0} for OSPF, {"overload":1,"attached":0} for IS-IS)
             pagination: page, per_page, total, total_pages
 
     Equivalent to GET /graph/{graph_time}/nodes.
@@ -445,6 +454,11 @@ def get_nodes(
         params["watcher"] = str(watcher).lower()
     if area:
         params["area"] = area
+    # Node role flags forwarded as node-attribute filters (e.g. ?abr=1); the API treats any
+    # such query arg as an exact match on the node_attributes map.
+    for flag_name, flag_value in (("abr", abr), ("asbr", asbr), ("overload", overload), ("attached", attached)):
+        if flag_value is not None:
+            params[flag_name] = int(flag_value)
 
     resp = requests.get(url, headers=get_auth_headers(), params=params)
     resp.raise_for_status()
