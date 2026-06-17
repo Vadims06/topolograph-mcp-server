@@ -412,6 +412,7 @@ def get_nodes(
     asbr: Optional[bool] = None,
     overload: Optional[bool] = None,
     attached: Optional[bool] = None,
+    maxmetric: Optional[bool] = None,
     page: int = 1,
     per_page: int = 50,
 ) -> dict:
@@ -435,13 +436,14 @@ def get_nodes(
         asbr (bool, optional): OSPF role filter — true returns only AS Boundary Routers (false: only non-ASBRs)
         overload (bool, optional): IS-IS filter — true returns only routers with the overload (OL) bit set
         attached (bool, optional): IS-IS filter — true returns only routers with the attached (ATT) bit set
+        maxmetric (bool, optional): OSPF filter — true returns only routers in max-metric (RFC 3137 stub router) state
         page (int): Page number, 1-indexed (default: 1)
         per_page (int): Items per page (default: 50)
 
     Output fields:
         dict with keys:
             items: list of nodes with node_id, hostname, systemid, networks_count, areas, is_isis,
-                   node_attributes (role flags: {"abr":1,"asbr":0} for OSPF, {"overload":1,"attached":0} for IS-IS)
+                   node_attributes (role flags: {"abr":1,"asbr":0,"maxmetric":0} for OSPF, {"overload":1,"attached":0} for IS-IS)
             pagination: page, per_page, total, total_pages
 
     Equivalent to GET /graph/{graph_time}/nodes.
@@ -456,7 +458,7 @@ def get_nodes(
         params["area"] = area
     # Node role flags forwarded as node-attribute filters (e.g. ?abr=1); the API treats any
     # such query arg as an exact match on the node_attributes map.
-    for flag_name, flag_value in (("abr", abr), ("asbr", asbr), ("overload", overload), ("attached", attached)):
+    for flag_name, flag_value in (("abr", abr), ("asbr", asbr), ("overload", overload), ("attached", attached), ("maxmetric", maxmetric)):
         if flag_value is not None:
             params[flag_name] = int(flag_value)
 
