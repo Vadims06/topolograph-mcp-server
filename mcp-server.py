@@ -562,9 +562,23 @@ def get_lsps(
 
     Description:
         Each returned path already carries its last CSPF placement outcome:
-        placed (bool), reason (why placement failed -- bandwidth/affinity/
-        srlg/disconnected -- null when placed), cost (total path metric,
-        null when unplaced). Getting a single tunnel by lsp_name always
+        placed (bool), reason (human-readable explanation, null when placed),
+        reason_code (machine-readable failure category, null when placed),
+        binding_constraints (which constraints actually block it), cost (total
+        path metric, null when unplaced).
+
+        Act on reason_code, not on the wording of reason:
+          disconnected -- no path exists even with every constraint lifted;
+            the topology is severed and must be repaired.
+          constraints_unsatisfiable -- a path DOES exist, but the request is
+            too strict. Do not tell the user connectivity is broken; tell them
+            which of binding_constraints to relax (bandwidth, affinity, srlg).
+            More than one entry means they block only in combination, so
+            relaxing just one will fail again.
+          ero_strict_hop_unreachable -- a strict ERO hop has no direct edge.
+          endpoint_not_found -- src or dst is not in the graph.
+
+        Getting a single tunnel by lsp_name always
         includes each path's expanded node-name path; the list form omits it
         by default (include_path=True to get it there too, since it can be
         large across many tunnels).
