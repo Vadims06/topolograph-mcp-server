@@ -129,6 +129,23 @@ class ShortestPathResponse(TypedDict):
     unbackup_paths_nodes_name_as_ll_in_ll: List[List[str]]
 
 
+class CspfPathResponse(TypedDict):
+    path: List[str]
+    cost: Optional[int]
+    reason: str
+
+
+class AffectedLinks(TypedDict):
+    sptPathsIncreasedInPercent: dict
+    sptPathsDecreasedInPercent: dict
+
+
+class EdgeFailureReactionResponse(TypedDict):
+    isGraphStillConnected: bool
+    affectedLinks: AffectedLinks
+    disjointedNodes: List[List[str]]
+
+
 class Graph(TypedDict):
     graph_time: str
     timestamp: str

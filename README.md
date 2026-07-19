@@ -70,9 +70,12 @@ The MCP server will be available at `http://localhost:8000/mcp` and automaticall
 - `get_adjacency_events`: Get node/host and link events
 - `get_events_timeline`: Node/host events grouped into time waves for incident narration
 - `get_nodes`: Query diagram nodes (filter by role flags: ABR/ASBR, IS-IS overload/attached)
-- `get_edges`: Query diagram edges
-- `get_shortest_path`: Calculate shortest paths between nodes
+- `get_edges`: Query diagram edges (`include=["lsp_left_bw", "lsps", "is_te_link", "edge_key"]` for MPLS TE fields)
+- `get_shortest_path`: Calculate the shortest path between two nodes (`with_lsps=true` to account for autoroute-enabled MPLS-TE tunnels)
+- `get_edge_failure_reaction`: Predict whole-network impact if one or more links go down
 - `upload_graph`: Upload new graphs to the API
+- `get_lsps` / `add_lsp` / `update_lsp` / `delete_lsp`: CRUD for MPLS TE LSP tunnels (filters: `status`, `via_node`, `via_edge`, `via_edge_key`)
+- `get_cspf_path`: Constrained-shortest-path (CSPF) feasibility check between two nodes, without creating a tunnel
 
 ## Wave patterns (`get_events_timeline`)
 

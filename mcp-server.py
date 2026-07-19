@@ -14,6 +14,8 @@ from schemas import (
     AdjacencyEventsResponse,
     EventsTimelineResponse,
     ShortestPathResponse,
+    CspfPathResponse,
+    EdgeFailureReactionResponse,
 )
 
 
@@ -476,6 +478,7 @@ def get_edges(
     watcher: Optional[bool] = None,
     area: Optional[str] = None,
     edge_query_params: Optional[dict] = None,
+    include: Optional[List[str]] = None,
     page: int = 1,
     per_page: int = 50,
 ) -> dict:
@@ -505,6 +508,13 @@ def get_edges(
         watcher (bool, optional): Graph-level filter: watcher-uploaded vs manually parsed
         area (str, optional): Graph-level filter by area
         edge_query_params (dict, optional): Edge attribute filters (flat key=value pairs)
+        include (list[str], optional): Extra MPLS-TE fields, hidden by default:
+          "lsp_left_bw" (how much TE bandwidth is left on each edge, after
+          accounting for placed LSP tunnels -- lsp_left_bw_0..7 plus a
+          human-readable lsp_reserved_bw/lsp_left_bw/lsp_bandwidth_usage pair
+          at the default priority-7 pool), "lsps" (which LSP tunnels traverse
+          this edge), "is_te_link" (whether the edge is TE-enabled), "edge_key"
+          (stable identity, needed for get_lsps(via_edge_key=) on parallel/ECMP edges)
         page (int): Page number, 1-indexed (default: 1)
         per_page (int): Items per page (default: 50)
 
@@ -527,6 +537,8 @@ def get_edges(
         params["watcher"] = str(watcher).lower()
     if area:
         params["area"] = area
+    if include:
+        params["include"] = ",".join(include)
     if edge_query_params:
         params.update(edge_query_params)
 
@@ -536,25 +548,118 @@ def get_edges(
 
 
 @mcp.tool
+def get_lsps(
+    graph_time: str,
+    lsp_name: Optional[str] = None,
+    status: Optional[str] = None,
+    via_node: Optional[str] = None,
+    via_edge: Optional[str] = None,
+    via_edge_key: Optional[str] = None,
+    include_path: bool = False,
+) -> dict:
+    """
+    List MPLS TE LSP tunnels, or get one tunnel by name.
+
+    Description:
+        Each returned path already carries its last CSPF placement outcome:
+        placed (bool), reason (why placement failed -- bandwidth/affinity/
+        srlg/disconnected -- null when placed), cost (total path metric,
+        null when unplaced). Getting a single tunnel by lsp_name always
+        includes each path's expanded node-name path; the list form omits it
+        by default (include_path=True to get it there too, since it can be
+        large across many tunnels).
+
+    Input fields:
+        graph_time (str): The graph time identifier
+        lsp_name (str, optional): Get one tunnel by name instead of listing all
+        status (str, optional): "placed" or "unplaced" -- keep only paths matching
+        via_node (str, optional): Keep only paths whose CSPF-computed path visits this node
+          (e.g. "which tunnels cross router X", pre-maintenance impact check)
+        via_edge (str, optional): "srcNode,dstNode" -- keep only paths traversing this hop
+        via_edge_key (str, optional): Exact stable edge_key (from get_edges(include=["edge_key"]))
+          -- disambiguates parallel/ECMP edges that via_edge alone cannot
+        include_path (bool, optional): Also return each path's expanded node-name path in the list form
+
+    Equivalent to GET /graph/{graph_time}/lsps[/{lsp_name}].
+    """
+    url = f"{API_BASE}/graph/{graph_time}/lsps"
+    if lsp_name:
+        url += f"/{lsp_name}"
+        resp = requests.get(url, headers=get_auth_headers())
+        raise_for_status_with_context(resp, graph_time)
+        return resp.json()
+
+    params: dict = {}
+    if status:
+        params["status"] = status
+    if via_node:
+        params["via_node"] = via_node
+    if via_edge:
+        params["via_edge"] = via_edge
+    if via_edge_key:
+        params["via_edge_key"] = via_edge_key
+    if include_path:
+        params["include"] = "path"
+
+    resp = requests.get(url, headers=get_auth_headers(), params=params)
+    raise_for_status_with_context(resp, graph_time)
+    return resp.json()
+
+
+@mcp.tool
+def add_lsp(graph_time: str, lsp: dict) -> dict:
+    """Add an MPLS TE LSP tunnel to a graph."""
+    url = f"{API_BASE}/graph/{graph_time}/lsps"
+    resp = requests.post(url, headers=get_auth_headers(), json=lsp)
+    raise_for_status_with_context(resp, graph_time)
+    return resp.json()
+
+
+@mcp.tool
+def update_lsp(graph_time: str, lsp_name: str, changes: dict) -> dict:
+    """Update or rename an MPLS TE LSP tunnel."""
+    url = f"{API_BASE}/graph/{graph_time}/lsps/{lsp_name}"
+    resp = requests.patch(url, headers=get_auth_headers(), json=changes)
+    raise_for_status_with_context(resp, graph_time)
+    return resp.json()
+
+
+@mcp.tool
+def delete_lsp(graph_time: str, lsp_name: Optional[str] = None) -> dict:
+    """Delete one MPLS TE LSP tunnel, or all tunnels when name is omitted."""
+    url = f"{API_BASE}/graph/{graph_time}/lsps"
+    if lsp_name:
+        url += f"/{lsp_name}"
+    resp = requests.delete(url, headers=get_auth_headers())
+    raise_for_status_with_context(resp, graph_time)
+    return resp.json()
+
+
+@mcp.tool
 def get_shortest_path(
     graph_time: str,
     src_node: str,
     dst_node: str,
-    removed_edges: Optional[list[list[str]]] = None,
+    with_lsps: bool = False,
 ) -> ShortestPathResponse:
     """
     Calculate the shortest path between two nodes/devices in a graph/diagram.
 
     Description:
-        This tool calculates the shortest path between two nodes in a graph/diagram,
-        with optional removal of specific edges for backup path calculation. It's useful for backup path calculation,
-        for the case when a link along the path will be down. It's useful for what-if analysis.
+        Plain IGP shortest path by default. For "what if this link is down"
+        backup-path analysis, use get_edge_failure_reaction instead -- that
+        question now has its own endpoint (whole-network impact, not just a
+        recomputed path).
 
     Input fields:
         graph_time (str): The graph time
         src_node (str): Source node Router ID (e.g., "10.10.10.1")
         dst_node (str): Destination node Router ID (e.g., "20.20.20.1")
-        removed_edges (list[list[str]], optional): List of edge pairs to remove from path calculation
+        with_lsps (bool, optional): If true, account for autoroute-enabled
+          MPLS-TE tunnels as forwarding shortcuts -- the path traffic actually
+          takes given the tunnels currently in the graph, not the plain IGP
+          path. Off by default (a signaled LSP does not redirect traffic on
+          its own without autoroute configured on the tunnel).
 
     Output fields:
         ShortestPathResponse: A dictionary containing shortest path information with keys:
@@ -562,12 +667,110 @@ def get_shortest_path(
             - cost: Integer representing total path cost
             - unbackup_paths_nodes_name_as_ll_in_ll: List of lists of node names representing backup paths
 
-    Equivalent to POST /path/.
+    Equivalent to GET /graph/{graph_time}/path/{src_node}/{dst_node}.
     """
-    url = f"{API_BASE}/path/"
-    payload = {"graph_time": graph_time, "src_node": src_node, "dst_node": dst_node}
-    if removed_edges:
-        payload["removedEdgesAsNodePairsFromSptPath_ll_in_ll"] = removed_edges
+    url = f"{API_BASE}/graph/{graph_time}/path/{src_node}/{dst_node}"
+    params: dict = {}
+    if with_lsps:
+        params["with_lsps"] = "true"
+
+    resp = requests.get(url, params=params, headers=get_auth_headers())
+    raise_for_status_with_context(resp, graph_time)
+    return resp.json()
+
+
+@mcp.tool
+def get_cspf_path(
+    graph_time: str,
+    node_a: str,
+    node_b: str,
+    bandwidth: Optional[str] = None,
+    metric_type: str = "igp",
+    admin_exclude_any: Optional[List[str]] = None,
+    admin_include_any: Optional[List[str]] = None,
+    admin_include_all: Optional[List[str]] = None,
+    srlg_exclude: Optional[List[int]] = None,
+    setup_priority: int = 7,
+) -> CspfPathResponse:
+    """
+    Constrained-shortest-path (CSPF) query between two nodes.
+
+    Description:
+        Answers "will an LSP with these constraints fit, and which path would
+        it take" -- an on-demand computation, exactly like get_shortest_path,
+        just over a graph pre-filtered by the given TE constraints instead of
+        the plain one. No tunnel is created or persisted; this never mutates
+        the graph. Use this before calling add_lsp when you want to check
+        feasibility first.
+
+    Input fields:
+        graph_time (str): The graph time identifier
+        node_a (str): Source node name
+        node_b (str): Destination node name
+        bandwidth (str, optional): Required bandwidth, e.g. "2G", "500M", or a raw bps number
+        metric_type (str, optional): "igp" (default) or "te"
+        admin_exclude_any (list[str], optional): Affinity group names to exclude
+        admin_include_any (list[str], optional): Affinity group names, at least one required
+        admin_include_all (list[str], optional): Affinity group names, all required
+        srlg_exclude (list[int], optional): SRLG ids to exclude
+        setup_priority (int, optional): RSVP-TE setup priority (0-7, default 7) -- selects
+          which advertised Unreserved Bandwidth pool the bandwidth check runs against
+
+    Output fields:
+        CspfPathResponse: dict with keys:
+            - path: list of node names (empty if no path satisfies the constraints)
+            - cost: total path metric (null if unplaced)
+            - reason: why placement failed, e.g. which constraint removed the only path
+              (empty string on success)
+
+    Equivalent to GET /graph/{graph_time}/cspf-path/{node_a}/{node_b}.
+    """
+    url = f"{API_BASE}/graph/{graph_time}/cspf-path/{node_a}/{node_b}"
+    params: dict = {"metric_type": metric_type, "setup_priority": setup_priority}
+    if bandwidth:
+        params["bandwidth"] = bandwidth
+    if admin_exclude_any:
+        params["admin_exclude_any"] = ",".join(admin_exclude_any)
+    if admin_include_any:
+        params["admin_include_any"] = ",".join(admin_include_any)
+    if admin_include_all:
+        params["admin_include_all"] = ",".join(admin_include_all)
+    if srlg_exclude:
+        params["srlg_exclude"] = ",".join(str(value) for value in srlg_exclude)
+
+    resp = requests.get(url, params=params, headers=get_auth_headers())
+    # 200 even when path is empty -- no path satisfying the constraints is a
+    # valid, successful answer (like a search with zero results); 404 is
+    # reserved for "the graph itself doesn't exist".
+    raise_for_status_with_context(resp, graph_time)
+    return resp.json()
+
+
+@mcp.tool
+def get_edge_failure_reaction(graph_time: str, failed_edges: list[list[str]]) -> EdgeFailureReactionResponse:
+    """
+    Predict the whole-network impact if one or more links go down.
+
+    Description:
+        Same shape as the node-failure prediction, for links instead of
+        nodes: whether the graph stays connected, and the traffic
+        rerouting pattern (which links see more/less traffic).
+
+    Input fields:
+        graph_time (str): The graph time
+        failed_edges (list[list[str]]): Pairs of node names identifying each failed link,
+          e.g. [["10.10.10.1", "10.10.10.2"]]
+
+    Output fields:
+        EdgeFailureReactionResponse: dict with keys:
+            - isGraphStillConnected: bool
+            - affectedLinks: {sptPathsIncreasedInPercent, sptPathsDecreasedInPercent}
+            - disjointedNodes: list of node-name groups, if the graph split
+
+    Equivalent to POST /network_reaction/edge_failure/.
+    """
+    url = f"{API_BASE}/network_reaction/edge_failure/"
+    payload = {"graph_time": graph_time, "failed_edges_list": failed_edges}
 
     resp = requests.post(url, json=payload, headers=get_auth_headers())
     raise_for_status_with_context(resp, graph_time)
