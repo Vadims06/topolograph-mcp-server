@@ -155,3 +155,141 @@ class Graph(TypedDict):
     watcher_name: NotRequired[Optional[str]]
     protocol: str  # ospf, ospfv3, isis, yaml
     is_from_watcher: bool  # whether from watcher
+
+
+class BgpGraph(TypedDict):
+    graph_time: str
+    timestamp: str
+    srcid: NotRequired[Optional[str]]
+    sesid: NotRequired[Optional[str]]
+    nodes: NotRequired[list]
+    sessions: NotRequired[list]
+
+
+class BgpNode(TypedDict):
+    name: str
+    asn: NotRequired[Union[int, str]]
+    role: NotRequired[str]  # speaker, peer
+    device_role: NotRequired[str]
+    label: NotRequired[str]
+    router_ip: NotRequired[str]
+    rib_view: NotRequired[Optional[str]]
+    can_build_path: NotRequired[bool]
+    assumptions: NotRequired[List[str]]  # import_not_observed, reflection_assumed
+    observed_by: NotRequired[List[str]]
+
+
+class BgpSession(TypedDict):
+    source: str
+    target: str
+    source_router_id: NotRequired[str]
+    target_router_id: NotRequired[str]
+    local_ip: NotRequired[str]
+    peer_ip: NotRequired[str]
+    asn: NotRequired[Union[int, str]]
+    peer_type: NotRequired[int]
+    families: NotRequired[List[str]]
+    policies: NotRequired[List[str]]
+    igp_relation: NotRequired[str]  # intra-domain, inter-domain, external
+    bgp_session_type: NotRequired[str]  # ibgp, ebgp
+
+
+class BgpRoute(TypedDict):
+    prefix: str
+    afi: NotRequired[int]
+    safi: NotRequired[int]
+    rd: NotRequired[Optional[str]]
+    vrf: NotRequired[Optional[str]]
+    nexthop: NotRequired[str]
+    labels: NotRequired[List[int]]
+    bmp_source: NotRequired[List[str]]
+    bmp_ribs: NotRequired[List[str]]
+    peer_ip: NotRequired[str]
+    path_id: NotRequired[Optional[str]]
+    route_targets: NotRequired[List[str]]
+    as_path: NotRequired[str]
+    local_pref: NotRequired[int]
+    med: NotRequired[int]
+    origin: NotRequired[str]
+    originator_id: NotRequired[Optional[str]]
+    cluster_list: NotRequired[List[str]]
+    communities: NotRequired[List[str]]
+    large_communities: NotRequired[List[str]]
+    extended_communities: NotRequired[List[str]]
+
+
+class BgpRouteSummary(TypedDict):
+    rib_view: Optional[str]
+    total: int
+    by_ribs: List[dict]
+    adj_rib_out: int
+
+
+class BgpRouteDiffRow(TypedDict):
+    prefix: str
+    diff_status: str  # added, withdrawn, changed
+    diff_prev: NotRequired[dict]
+
+
+class BgpBinding(TypedDict):
+    bgp_graph_time: str
+    igp_graph_time: str
+    matched_rids: List[str]
+    source_coverage: float
+    state: str  # bound, partial, needs_mapping
+
+
+class VrfAddressFamily(TypedDict):
+    afi: str
+    safi: str
+    import_rts: List[str]
+    export_rts: List[str]
+
+
+class Vrf(TypedDict):
+    router_id: str
+    rd: str
+    name: str
+    observed_at: str
+    address_families: List[VrfAddressFamily]
+
+
+class VpnRouter(TypedDict):
+    router_id: str
+    vpn_count: int
+    evidence: str  # loc_rib, adj_rib_in, loc_rib_reflected, adj_rib_out
+    can_build_path: bool
+    assumptions: NotRequired[List[str]]
+
+
+class BgpNodesResponse(TypedDict):
+    items: List[BgpNode]
+    pagination: Pagination
+
+
+class BgpSessionsResponse(TypedDict):
+    items: List[BgpSession]
+    pagination: Pagination
+
+
+class BgpRoutesResponse(TypedDict):
+    items: List[BgpRoute]
+    pagination: Pagination
+    sortable_columns: List[str]
+
+
+class BgpRouteCompareResponse(TypedDict):
+    items: List[BgpRouteDiffRow]
+
+
+class BgpBindingsResponse(TypedDict):
+    items: List[BgpBinding]
+
+
+class VrfInventoryResponse(TypedDict):
+    items: List[Vrf]
+
+
+class VpnRoutersResponse(TypedDict):
+    items: List[VpnRouter]
+

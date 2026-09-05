@@ -37,6 +37,17 @@ Optional authentication:
 export TOPOLOGRAPH_API_TOKEN="your-api-token"
 ```
 
+Optional read-only mode (defaults to `true`, recommended for agent-facing deployments):
+
+```bash
+export TOPOLOGRAPH_MCP_READ_ONLY="true"
+```
+
+When enabled, mutation tools (`upload_graph`, `add_lsp`, `update_lsp`, `delete_lsp`) are
+removed from the advertised tool surface (`tools/list`) and cannot be called, even by a
+client that already knows their name. Set to `false` only for trusted/admin deployments
+that need write access.
+
 ## Usage
 
 Start the MCP server:
@@ -62,6 +73,8 @@ The MCP server will be available at `http://localhost:8000/mcp` and automaticall
 
 ## Available Tools
 
+### Read tools (always available)
+
 - `get_all_graphs`: List available graphs with filtering options
 - `get_graph_by_time`: Fetch specific graph by time
 - `get_network_by_graph_time`: Query network information
@@ -71,11 +84,34 @@ The MCP server will be available at `http://localhost:8000/mcp` and automaticall
 - `get_events_timeline`: Node/host events grouped into time waves for incident narration
 - `get_nodes`: Query diagram nodes (filter by role flags: ABR/ASBR, IS-IS overload/attached)
 - `get_edges`: Query diagram edges (`include=["lsp_left_bw", "lsps", "is_te_link", "edge_key"]` for MPLS TE fields)
+- `get_lsps`: List/inspect MPLS TE LSP tunnels (filters: `status`, `via_node`, `via_edge`, `via_edge_key`)
 - `get_shortest_path`: Calculate the shortest path between two nodes (`with_lsps=true` to account for autoroute-enabled MPLS-TE tunnels)
-- `get_edge_failure_reaction`: Predict whole-network impact if one or more links go down
+- `get_cspf_path`: Constrained-shortest-path (CSPF) feasibility check between two nodes; never mutates the graph
+- `get_edge_failure_reaction`: Predict whole-network impact if one or more links go down; simulation only
+
+### BGP topology tools (require Topolograph >= 2.69)
+
+- `list_bgp_graphs` / `get_bgp_graph`: List/fetch BGP graph epochs
+- `list_bgp_nodes` / `list_bgp_sessions`: BGP speakers and peering sessions of an epoch
+- `search_bgp_routes`: Search the BGP route table, whole-graph or scoped to one speaker's resolved RIB view
+- `get_bgp_node_route_summary`: Per-speaker route totals (RIB-tag histogram, Adj-RIB-Out count)
+- `get_bgp_route_state`: Point-in-time BGP route state
+- `compare_bgp_routes`: Diff BGP routes between two instants
+- `get_bgp_events_timeline`: BGP session/route monitoring events
+- `list_bgp_bindings` / `get_bgp_binding`: BGP-to-IGP graph correlation
+- `resolve_route`: Resolve a path to a destination, including VPN/MPLS handoffs
+- `get_vrf_inventory` / `list_vpn_routers`: VRF inventory and VPN start-node candidates for `resolve_route`
+
+### Mutation tools (hidden and disabled when `TOPOLOGRAPH_MCP_READ_ONLY=true`)
+
 - `upload_graph`: Upload new graphs to the API
-- `get_lsps` / `add_lsp` / `update_lsp` / `delete_lsp`: CRUD for MPLS TE LSP tunnels (filters: `status`, `via_node`, `via_edge`, `via_edge_key`)
-- `get_cspf_path`: Constrained-shortest-path (CSPF) feasibility check between two nodes, without creating a tunnel
+- `add_lsp` / `update_lsp` / `delete_lsp`: Create, update, and delete MPLS TE LSP tunnels (`delete_lsp` is also tagged destructive)
+
+Tools are tagged `read`, `write`, and/or `destructive` in source, and carry standard MCP
+annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`) for clients that use them
+for tool selection. Annotations are metadata for clients, not a security boundary: the
+actual boundary is `TOPOLOGRAPH_MCP_READ_ONLY` hiding mutation tools from `tools/list`,
+backed by a server-side guard that also rejects direct calls to them in read-only mode.
 
 ## Wave patterns (`get_events_timeline`)
 

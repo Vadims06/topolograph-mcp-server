@@ -2,6 +2,7 @@
 from fastmcp import FastMCP
 from fastmcp.server.auth import AuthProvider
 from fastmcp.server.dependencies import get_http_request
+from mcp.types import ToolAnnotations
 import requests
 from starlette.requests import Request
 from typing import Optional, List
@@ -16,6 +17,16 @@ from schemas import (
     ShortestPathResponse,
     CspfPathResponse,
     EdgeFailureReactionResponse,
+    BgpGraph,
+    BgpRouteSummary,
+    BgpBinding,
+    BgpNodesResponse,
+    BgpSessionsResponse,
+    BgpRoutesResponse,
+    BgpRouteCompareResponse,
+    BgpBindingsResponse,
+    VrfInventoryResponse,
+    VpnRoutersResponse,
 )
 
 
@@ -27,13 +38,22 @@ mcp = FastMCP(
     instructions="""
               Use this MCP in order to get details about OSPF/IS-IS domain.
               Tool provides informations about number of nodes and links are in OSPF/IS-IS domain""",
-    version="1.2.0",
+    version="1.3.0",
 )
 
 # Base URL for your Flask+Connexion API
 API_BASE = os.getenv("TOPOLOGRAPH_API_BASE", "")
 if not API_BASE:
     raise ValueError("TOPOLOGRAPH_API_BASE environment variable is not set")
+
+# Read-only mode hides mutation tools (upload_graph, add_lsp, update_lsp,
+# delete_lsp) from tools/list entirely, instead of merely rejecting calls to
+# them at runtime. Defaults to enabled: agent-facing deployments should opt
+# into write access explicitly, not the other way around. Fails closed: only
+# a recognized "disable" value turns it off, so a blank or misspelled value
+# (e.g. an unset Compose substitution) stays read-only instead of silently
+# exposing every mutation tool.
+READ_ONLY = os.getenv("TOPOLOGRAPH_MCP_READ_ONLY", "true").strip().lower() not in ("0", "false", "no", "off")
 
 
 def get_auth_headers():
@@ -43,10 +63,10 @@ def get_auth_headers():
     try:
         request: Request = get_http_request()
         auth_header = request.headers.get('Authorization', '')
-        logging.debug(f"Authorization header from context: {auth_header}")
+        logging.debug(f"Authorization header present: {bool(auth_header)}")
         if auth_header.startswith('Bearer '):
             token = auth_header.split(' ', 1)[1]
-            logging.debug(f"Using token from request context for authentication: {token[:10]}...")
+            logging.debug("Using bearer token from request context for authentication")
             return {
                 "Authorization": f"Bearer {token}",
                 "Accept": "application/json, text/event-stream",
@@ -54,11 +74,25 @@ def get_auth_headers():
             }
     except Exception as e:
         logging.debug(f"Could not get token from request context: {e}")
-    
+
     return {
         "Accept": "application/json, text/event-stream",
         "Content-Type": "application/json"
     }
+
+
+def _require_write_enabled():
+    """Defense-in-depth guard for mutation tools. Read-only mode is primarily
+    enforced by hiding write/destructive tools from tools/list (see
+    mcp.exclude_tags below); this guard protects against a
+    mutation tool being reachable despite that -- e.g. a future registration
+    or configuration regression -- and must never be the only safeguard.
+    """
+    if READ_ONLY:
+        raise PermissionError(
+            "This Topolograph MCP server is running in read-only mode "
+            "(TOPOLOGRAPH_MCP_READ_ONLY=true); mutation tools are disabled."
+        )
 
 
 def raise_for_status_with_context(resp, graph_time: str):
@@ -90,7 +124,10 @@ def require_watcher_graph(graph_time: str):
         )
 
 
-@mcp.tool
+@mcp.tool(
+    tags={"read"},
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
+)
 def get_graph_by_time(graph_time: str):
     """
     Fetch a graph by graph name from Topolograph API.
@@ -103,7 +140,10 @@ def get_graph_by_time(graph_time: str):
     resp.raise_for_status()
     return resp.json()
 
-@mcp.tool
+@mcp.tool(
+    tags={"read"},
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
+)
 def get_all_graphs(
     protocol: Optional[str] = None,
     area: Optional[str] = None,
@@ -157,19 +197,26 @@ def get_all_graphs(
     return resp.json()
 
 
-@mcp.tool
+@mcp.tool(
+    tags={"write"},
+    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=True),
+)
 def upload_graph(graph: dict):
     """
     Upload a new graph into Topolograph API.
     Equivalent to POST /graph with JSON body.
     """
+    _require_write_enabled()
     url = f"{API_BASE}/graph"
     resp = requests.post(url, json=graph, headers=get_auth_headers())
     resp.raise_for_status()
     return resp.json()
 
 
-@mcp.tool
+@mcp.tool(
+    tags={"read"},
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
+)
 def get_network_by_graph_time(
     graph_time: str,
     network_w_digit_mask: Optional[str] = None,
@@ -217,7 +264,10 @@ def get_network_by_graph_time(
     return resp.json()
 
 
-@mcp.tool
+@mcp.tool(
+    tags={"read"},
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
+)
 def get_graph_status(graph_time: str) -> dict:
     """
     Get the status of a graph based on its health.
@@ -249,7 +299,10 @@ def get_graph_status(graph_time: str) -> dict:
     return resp.json()
 
 
-@mcp.tool
+@mcp.tool(
+    tags={"read"},
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
+)
 def get_network_events(
     graph_time: str,
     start_time: Optional[str] = None,
@@ -295,7 +348,10 @@ def get_network_events(
     return resp.json()
 
 
-@mcp.tool
+@mcp.tool(
+    tags={"read"},
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
+)
 def get_adjacency_events(
     graph_time: str,
     start_time: Optional[str] = None,
@@ -343,7 +399,10 @@ def get_adjacency_events(
     return resp.json()
 
 
-@mcp.tool
+@mcp.tool(
+    tags={"read"},
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
+)
 def get_events_timeline(
     graph_time: str,
     start_time: Optional[str] = None,
@@ -404,7 +463,10 @@ def get_events_timeline(
     return resp.json()
 
 
-@mcp.tool
+@mcp.tool(
+    tags={"read"},
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
+)
 def get_nodes(
     graph_time: str,
     protocol: Optional[str] = None,
@@ -469,7 +531,10 @@ def get_nodes(
     return resp.json()
 
 
-@mcp.tool
+@mcp.tool(
+    tags={"read"},
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
+)
 def get_edges(
     graph_time: str,
     src_node: Optional[str] = None,
@@ -547,7 +612,10 @@ def get_edges(
     return resp.json()
 
 
-@mcp.tool
+@mcp.tool(
+    tags={"read"},
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
+)
 def get_lsps(
     graph_time: str,
     lsp_name: Optional[str] = None,
@@ -620,27 +688,39 @@ def get_lsps(
     return resp.json()
 
 
-@mcp.tool
+@mcp.tool(
+    tags={"write"},
+    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=True),
+)
 def add_lsp(graph_time: str, lsp: dict) -> dict:
     """Add an MPLS TE LSP tunnel to a graph."""
+    _require_write_enabled()
     url = f"{API_BASE}/graph/{graph_time}/lsps"
     resp = requests.post(url, headers=get_auth_headers(), json=lsp)
     raise_for_status_with_context(resp, graph_time)
     return resp.json()
 
 
-@mcp.tool
+@mcp.tool(
+    tags={"write", "destructive"},
+    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=True),
+)
 def update_lsp(graph_time: str, lsp_name: str, changes: dict) -> dict:
     """Update or rename an MPLS TE LSP tunnel."""
+    _require_write_enabled()
     url = f"{API_BASE}/graph/{graph_time}/lsps/{lsp_name}"
     resp = requests.patch(url, headers=get_auth_headers(), json=changes)
     raise_for_status_with_context(resp, graph_time)
     return resp.json()
 
 
-@mcp.tool
+@mcp.tool(
+    tags={"write", "destructive"},
+    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=True),
+)
 def delete_lsp(graph_time: str, lsp_name: Optional[str] = None) -> dict:
     """Delete one MPLS TE LSP tunnel, or all tunnels when name is omitted."""
+    _require_write_enabled()
     url = f"{API_BASE}/graph/{graph_time}/lsps"
     if lsp_name:
         url += f"/{lsp_name}"
@@ -649,7 +729,10 @@ def delete_lsp(graph_time: str, lsp_name: Optional[str] = None) -> dict:
     return resp.json()
 
 
-@mcp.tool
+@mcp.tool(
+    tags={"read"},
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
+)
 def get_shortest_path(
     graph_time: str,
     src_node: str,
@@ -693,7 +776,10 @@ def get_shortest_path(
     return resp.json()
 
 
-@mcp.tool
+@mcp.tool(
+    tags={"read"},
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
+)
 def get_cspf_path(
     graph_time: str,
     node_a: str,
@@ -760,7 +846,10 @@ def get_cspf_path(
     return resp.json()
 
 
-@mcp.tool
+@mcp.tool(
+    tags={"read"},
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
+)
 def get_edge_failure_reaction(graph_time: str, failed_edges: list[list[str]]) -> EdgeFailureReactionResponse:
     """
     Predict the whole-network impact if one or more links go down.
@@ -768,7 +857,9 @@ def get_edge_failure_reaction(graph_time: str, failed_edges: list[list[str]]) ->
     Description:
         Same shape as the node-failure prediction, for links instead of
         nodes: whether the graph stays connected, and the traffic
-        rerouting pattern (which links see more/less traffic).
+        rerouting pattern (which links see more/less traffic). This is a
+        simulation only: it does not fail any link or otherwise mutate the
+        graph.
 
     Input fields:
         graph_time (str): The graph time
@@ -787,6 +878,487 @@ def get_edge_failure_reaction(graph_time: str, failed_edges: list[list[str]]) ->
     payload = {"graph_time": graph_time, "failed_edges_list": failed_edges}
 
     resp = requests.post(url, json=payload, headers=get_auth_headers())
+    raise_for_status_with_context(resp, graph_time)
+    return resp.json()
+
+
+@mcp.tool(
+    tags={"read"},
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
+)
+def list_bgp_graphs(page: int = 1, per_page: int = 50) -> dict:
+    """
+    List BGP graph epochs (one per BMP collection cycle), newest first.
+
+    Input fields:
+        page (int): Page number, 1-indexed (default: 1)
+        per_page (int): Items per page (default: 50)
+
+    Equivalent to GET /bgp-graphs.
+    """
+    url = f"{API_BASE}/bgp-graphs"
+    resp = requests.get(url, headers=get_auth_headers(), params={"page": page, "per_page": per_page})
+    resp.raise_for_status()
+    return resp.json()
+
+
+@mcp.tool(
+    tags={"read"},
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
+)
+def get_bgp_graph(bgp_graph_time: str) -> BgpGraph:
+    """
+    Fetch one BGP graph epoch by bgp_graph_time.
+
+    Equivalent to GET /bgp-graph/{bgp_graph_time}.
+    """
+    url = f"{API_BASE}/bgp-graph/{bgp_graph_time}"
+    resp = requests.get(url, headers=get_auth_headers())
+    raise_for_status_with_context(resp, bgp_graph_time)
+    return resp.json()
+
+
+@mcp.tool(
+    tags={"read"},
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
+)
+def list_bgp_nodes(
+    bgp_graph_time: str,
+    role: Optional[str] = None,
+    asn: Optional[str] = None,
+    page: int = 1,
+    per_page: int = 50,
+) -> BgpNodesResponse:
+    """
+    List the BGP speakers of a BGP graph epoch.
+
+    Input fields:
+        bgp_graph_time (str): The BGP graph epoch to query
+        role (str, optional): Filter by node role
+        asn (str, optional): Filter by autonomous system number
+        page (int): Page number, 1-indexed (default: 1)
+        per_page (int): Items per page (default: 50)
+
+    Output fields:
+        dict with keys: items (list of BgpNode, each with rib_view, can_build_path,
+        observed_by), pagination
+
+    Equivalent to GET /bgp-graph/{bgp_graph_time}/nodes.
+    """
+    url = f"{API_BASE}/bgp-graph/{bgp_graph_time}/nodes"
+    params: dict = {"page": page, "per_page": per_page}
+    if role:
+        params["role"] = role
+    if asn:
+        params["asn"] = asn
+    resp = requests.get(url, headers=get_auth_headers(), params=params)
+    raise_for_status_with_context(resp, bgp_graph_time)
+    return resp.json()
+
+
+@mcp.tool(
+    tags={"read"},
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
+)
+def list_bgp_sessions(
+    bgp_graph_time: str,
+    igp_relation: Optional[str] = None,
+    bgp_session_type: Optional[str] = None,
+    page: int = 1,
+    per_page: int = 50,
+) -> BgpSessionsResponse:
+    """
+    List BGP peering sessions of a BGP graph epoch.
+
+    Input fields:
+        bgp_graph_time (str): The BGP graph epoch to query
+        igp_relation (str, optional): Filter by relation to the IGP topology
+          (intra-domain, inter-domain, external)
+        bgp_session_type (str, optional): Filter by session type (ibgp, ebgp)
+        page (int): Page number, 1-indexed (default: 1)
+        per_page (int): Items per page (default: 50)
+
+    Output fields:
+        dict with keys: items (list of BgpSession), pagination
+
+    Equivalent to GET /bgp-graph/{bgp_graph_time}/sessions.
+    """
+    url = f"{API_BASE}/bgp-graph/{bgp_graph_time}/sessions"
+    params: dict = {"page": page, "per_page": per_page}
+    if igp_relation:
+        params["igp_relation"] = igp_relation
+    if bgp_session_type:
+        params["bgp_session_type"] = bgp_session_type
+    resp = requests.get(url, headers=get_auth_headers(), params=params)
+    raise_for_status_with_context(resp, bgp_graph_time)
+    return resp.json()
+
+
+@mcp.tool(
+    tags={"read"},
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
+)
+def search_bgp_routes(
+    bgp_graph_time: str,
+    router_id: Optional[str] = None,
+    prefix: Optional[str] = None,
+    lpm: Optional[bool] = None,
+    vrf: Optional[str] = None,
+    rd: Optional[str] = None,
+    rt: Optional[str] = None,
+    afi: Optional[int] = None,
+    safi: Optional[int] = None,
+    bmp_rib: Optional[str] = None,
+    evidence: Optional[str] = None,
+    as_path_contains: Optional[str] = None,
+    origin: Optional[str] = None,
+    local_pref: Optional[int] = None,
+    med: Optional[int] = None,
+    community: Optional[str] = None,
+    large_community: Optional[str] = None,
+    extended_community: Optional[str] = None,
+    label: Optional[int] = None,
+    originator_id: Optional[str] = None,
+    peer_ip: Optional[str] = None,
+    nexthop: Optional[str] = None,
+    bmp_source: Optional[str] = None,
+    table_filters: Optional[str] = None,
+    ribs: Optional[str] = None,
+    sort: Optional[str] = None,
+    order: str = "asc",
+    page: int = 1,
+    per_page: int = 50,
+) -> BgpRoutesResponse:
+    """
+    Search BGP routes, one row per distinct RFC 4271 9.1 path.
+
+    Description:
+        Without router_id, searches the whole BGP graph's route table
+        (GET /routes). With router_id, scopes the search to that speaker's
+        own resolved RIB view (GET /node/{router_id}/routes) -- the routes
+        that speaker actually holds, folded on the same path definition; that
+        scoped form does not accept bmp_source or table_filters (rib_view is
+        already a single table). bmp_source and bmp_ribs come back as arrays.
+
+    Input fields:
+        bgp_graph_time (str): The BGP graph epoch to query
+        router_id (str, optional): Scope the search to one speaker's resolved RIB view
+        prefix (str, optional): Exact or, with lpm, longest-prefix-match prefix
+        lpm (bool, optional): Treat prefix as a longest-prefix-match query
+        vrf (str, optional), rd (str, optional), rt (str, optional): VPN identifiers
+        afi (int, optional), safi (int, optional): Address family filters
+        bmp_rib (str, optional): Filter by RIB tag (e.g. adj-rib-in-pre, loc-rib)
+        evidence (str, optional): pre_policy, post_policy, loc_rib, or fib
+        as_path_contains (str, optional): Substring match over the AS path
+        origin (str, optional), local_pref (int, optional), med (int, optional)
+        community (str, optional), large_community (str, optional), extended_community (str, optional)
+        label (int, optional), originator_id (str, optional), peer_ip (str, optional), nexthop (str, optional)
+        bmp_source (str, optional): Ignored when router_id is set
+        table_filters (str, optional): URL-encoded JSON object keyed by route column, e.g.
+          '{"communities":{"conditions":[{"join":"and","operator":"contains","value":"65000:100"}]}}'.
+          Ignored when router_id is set.
+        ribs (str, optional): Comma-separated exact RIB-tag set to match against the folded
+          policy set, e.g. "loc-rib,post"
+        sort (str, optional): Indexed route column to order by
+        order (str): asc or desc (default: asc)
+        page (int): Page number, 1-indexed (default: 1)
+        per_page (int): Items per page (default: 50)
+
+    Equivalent to GET /bgp-graph/{bgp_graph_time}/routes or
+    GET /bgp-graph/{bgp_graph_time}/node/{router_id}/routes.
+    """
+    if router_id:
+        url = f"{API_BASE}/bgp-graph/{bgp_graph_time}/node/{router_id}/routes"
+    else:
+        url = f"{API_BASE}/bgp-graph/{bgp_graph_time}/routes"
+
+    params: dict = {"order": order, "page": page, "per_page": per_page}
+    for key, value in (
+        ("prefix", prefix), ("vrf", vrf), ("rd", rd), ("rt", rt),
+        ("afi", afi), ("safi", safi), ("bmp_rib", bmp_rib), ("evidence", evidence),
+        ("as_path_contains", as_path_contains), ("origin", origin),
+        ("local_pref", local_pref), ("med", med), ("community", community),
+        ("large_community", large_community), ("extended_community", extended_community),
+        ("label", label), ("originator_id", originator_id), ("peer_ip", peer_ip),
+        ("nexthop", nexthop), ("sort", sort),
+    ):
+        if value is not None:
+            params[key] = value
+    if lpm is not None:
+        params["lpm"] = str(lpm).lower()
+    if ribs:
+        params["ribs"] = ribs
+    if not router_id:
+        if bmp_source:
+            params["bmp_source"] = bmp_source
+        if table_filters:
+            params["table_filters"] = table_filters
+
+    resp = requests.get(url, headers=get_auth_headers(), params=params)
+    raise_for_status_with_context(resp, bgp_graph_time)
+    return resp.json()
+
+
+@mcp.tool(
+    tags={"read"},
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
+)
+def get_bgp_node_route_summary(bgp_graph_time: str, router_id: str) -> BgpRouteSummary:
+    """
+    Route totals for one BGP speaker: its resolved RIB view size, a
+    per-RIB-tag histogram, and how many routes it advertised (Adj-RIB-Out).
+
+    Equivalent to GET /bgp-graph/{bgp_graph_time}/node/{router_id}/routes/summary.
+    """
+    url = f"{API_BASE}/bgp-graph/{bgp_graph_time}/node/{router_id}/routes/summary"
+    resp = requests.get(url, headers=get_auth_headers())
+    raise_for_status_with_context(resp, bgp_graph_time)
+    return resp.json()
+
+
+@mcp.tool(
+    tags={"read"},
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
+)
+def get_bgp_route_state(bgp_graph_time: str, at: Optional[str] = None) -> dict:
+    """
+    Point-in-time BGP route state, reconstructed from stored events.
+
+    Input fields:
+        bgp_graph_time (str): The BGP graph epoch to query
+        at (str, optional): ISO 8601 timestamp; defaults to now
+
+    Equivalent to GET /bgp-graph/{bgp_graph_time}/routes/state.
+    """
+    url = f"{API_BASE}/bgp-graph/{bgp_graph_time}/routes/state"
+    params: dict = {}
+    if at:
+        params["at"] = at
+    resp = requests.get(url, headers=get_auth_headers(), params=params)
+    raise_for_status_with_context(resp, bgp_graph_time)
+    return resp.json()
+
+
+@mcp.tool(
+    tags={"read"},
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
+)
+def compare_bgp_routes(
+    bgp_graph_time: str,
+    t0: str,
+    t1: str,
+    router_id: Optional[str] = None,
+    t0_graph_time: Optional[str] = None,
+) -> BgpRouteCompareResponse:
+    """
+    Diff BGP routes between two instants: one row per differing route.
+
+    Input fields:
+        bgp_graph_time (str): The BGP graph epoch to query (the t1 epoch)
+        t0 (str): ISO 8601 timestamp, the earlier instant
+        t1 (str): ISO 8601 timestamp, the later instant
+        router_id (str, optional): Scope the diff to one reporting speaker
+        t0_graph_time (str, optional): Epoch of t0 when it differs from bgp_graph_time
+          (collector restart); must be the same collector (srcid)
+
+    Output fields:
+        dict with key: items (list of BgpRouteDiffRow; diff_status is
+        added|withdrawn|changed, a changed row also carries diff_prev)
+
+    Equivalent to GET /bgp-graph/{bgp_graph_time}/routes/compare.
+    """
+    url = f"{API_BASE}/bgp-graph/{bgp_graph_time}/routes/compare"
+    params: dict = {"t0": t0, "t1": t1}
+    if router_id:
+        params["router_id"] = router_id
+    if t0_graph_time:
+        params["t0_graph_time"] = t0_graph_time
+    resp = requests.get(url, headers=get_auth_headers(), params=params)
+    raise_for_status_with_context(resp, bgp_graph_time)
+    return resp.json()
+
+
+@mcp.tool(
+    tags={"read"},
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
+)
+def get_bgp_events_timeline(
+    bgp_graph_time: str,
+    start_time: Optional[str] = None,
+    end_time: Optional[str] = None,
+    last_minutes: Optional[int] = None,
+    event_name: Optional[str] = None,
+    event_status: Optional[str] = None,
+    as_rows: bool = False,
+) -> dict:
+    """
+    BGP monitoring events (session up/down, route churn), grouped into a
+    timeline by default.
+
+    Input fields:
+        bgp_graph_time (str): The BGP graph epoch to query
+        start_time (str, optional), end_time (str, optional): ISO 8601 window
+        last_minutes (int, optional): Look back this many minutes from end_time
+          (default now); overrides start_time
+        event_name (str, optional), event_status (str, optional): Filters
+        as_rows (bool, optional): Return one flat row per event instead of the timeline aggregate
+
+    Equivalent to GET /bgp-graph/{bgp_graph_time}/events.
+    """
+    url = f"{API_BASE}/bgp-graph/{bgp_graph_time}/events"
+    params: dict = {}
+    if last_minutes:
+        params["last_minutes"] = last_minutes
+        if end_time:
+            params["end_time"] = end_time
+    else:
+        if start_time:
+            params["start_time"] = start_time
+        if end_time:
+            params["end_time"] = end_time
+    if event_name:
+        params["event_name"] = event_name
+    if event_status:
+        params["event_status"] = event_status
+    if as_rows:
+        params["response_format"] = "rows"
+    resp = requests.get(url, headers=get_auth_headers(), params=params)
+    raise_for_status_with_context(resp, bgp_graph_time)
+    return resp.json()
+
+
+@mcp.tool(
+    tags={"read"},
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
+)
+def list_bgp_bindings(bgp_graph_time: str) -> BgpBindingsResponse:
+    """
+    List the BGP-to-IGP graph bindings known for a BGP graph epoch.
+
+    Output fields:
+        dict with key: items (list of BgpBinding)
+
+    Equivalent to GET /bgp-graph/{bgp_graph_time}/bindings.
+    """
+    url = f"{API_BASE}/bgp-graph/{bgp_graph_time}/bindings"
+    resp = requests.get(url, headers=get_auth_headers())
+    raise_for_status_with_context(resp, bgp_graph_time)
+    return resp.json()
+
+
+@mcp.tool(
+    tags={"read"},
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
+)
+def get_bgp_binding(bgp_graph_time: str, graph_time: str) -> BgpBinding:
+    """
+    Fetch one BGP-to-IGP graph binding: which IGP graph this BGP epoch is
+    correlated with, and how confidently (matched_rids, source_coverage, state).
+
+    Equivalent to GET /bgp-graph/{bgp_graph_time}/{graph_time}/binding.
+    """
+    url = f"{API_BASE}/bgp-graph/{bgp_graph_time}/{graph_time}/binding"
+    resp = requests.get(url, headers=get_auth_headers())
+    raise_for_status_with_context(resp, bgp_graph_time)
+    return resp.json()
+
+
+@mcp.tool(
+    tags={"read"},
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
+)
+def resolve_route(
+    graph_time: str,
+    start_node: str,
+    destination: str,
+    rt: Optional[str] = None,
+    vrf: Optional[str] = None,
+    rd: Optional[str] = None,
+    evidence: str = "loc_rib",
+    with_lsps: bool = True,
+    changed_edge_costs: Optional[dict] = None,
+) -> dict:
+    """
+    Resolve the path a router would take to a destination, one row per
+    routing decision -- hands off between static/BGP/IGP/LSP whenever one of
+    them overrides the plain SPF path.
+
+    Input fields:
+        graph_time (str): The IGP graph to resolve against
+        start_node (str): Router ID the resolution starts from
+        destination (str): Router ID or free-typed prefix
+        rt (str, optional), vrf (str, optional), rd (str, optional): three ways
+          to name one VPN; rt is the only one that identifies it across PEs
+        evidence (str): pre_policy, post_policy, loc_rib (default), or fib --
+          what the answer rests on when start_node's table is not observed directly
+        with_lsps (bool): Let MPLS TE LSPs override the plain IGP path (default: true)
+        changed_edge_costs (dict, optional): igraph edge id -> new metric, for
+          what-if cost planning
+
+    Equivalent to POST /graph/{graph_time}/route-resolution/{start_node}.
+    """
+    url = f"{API_BASE}/graph/{graph_time}/route-resolution/{start_node}"
+    body: dict = {"destination": destination, "evidence": evidence, "with_lsps": with_lsps}
+    if rt:
+        body["rt"] = rt
+    if vrf:
+        body["vrf"] = vrf
+    if rd:
+        body["rd"] = rd
+    if changed_edge_costs:
+        body["changed_edge_costs"] = changed_edge_costs
+
+    resp = requests.post(url, json=body, headers=get_auth_headers())
+    raise_for_status_with_context(resp, graph_time)
+    return resp.json()
+
+
+@mcp.tool(
+    tags={"read"},
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
+)
+def get_vrf_inventory(graph_time: str, router_id: Optional[str] = None, rd: Optional[str] = None) -> VrfInventoryResponse:
+    """
+    Router-scoped VRF inventory as of an IGP graph: names, route
+    distinguishers, and per-address-family import/export route targets.
+
+    Input fields:
+        graph_time (str): The IGP graph time
+        router_id (str, optional), rd (str, optional): Filters
+
+    Output fields:
+        dict with key: items (list of Vrf)
+
+    Equivalent to GET /graph/{graph_time}/vrfs.
+    """
+    url = f"{API_BASE}/graph/{graph_time}/vrfs"
+    params: dict = {}
+    if router_id:
+        params["router_id"] = router_id
+    if rd:
+        params["rd"] = rd
+    resp = requests.get(url, headers=get_auth_headers(), params=params)
+    raise_for_status_with_context(resp, graph_time)
+    return resp.json()
+
+
+@mcp.tool(
+    tags={"read"},
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
+)
+def list_vpn_routers(graph_time: str) -> VpnRoutersResponse:
+    """
+    Routers the bound BGP epochs know, with how well each one's VPN table is
+    observed -- start-node candidates for resolve_route on a VPN destination.
+
+    Output fields:
+        dict with key: items (list of VpnRouter, each with vpn_count, evidence,
+        can_build_path, assumptions)
+
+    Equivalent to GET /graph/{graph_time}/vpn-routers.
+    """
+    url = f"{API_BASE}/graph/{graph_time}/vpn-routers"
+    resp = requests.get(url, headers=get_auth_headers())
     raise_for_status_with_context(resp, graph_time)
     return resp.json()
 
@@ -815,12 +1387,23 @@ def ask_about_events() -> str:
     return "Can you please explain the status of events happened for the last 10 minutes in the area?"
 
 
+# Read-only mode is the primary boundary: it removes write/destructive tools
+# from the advertised tool surface (tools/list) so an agent never even sees
+# them as an option, rather than relying solely on the runtime guard in
+# _require_write_enabled() above.
+if READ_ONLY:
+    mcp.exclude_tags = {"write"}
+    logging.info("TOPOLOGRAPH_MCP_READ_ONLY is enabled: mutation tools are hidden from tools/list")
+else:
+    logging.info("TOPOLOGRAPH_MCP_READ_ONLY is disabled: mutation tools are exposed")
+
+
 if __name__ == "__main__":
     # Debug: Print FastMCP attributes
     logging.info(f"FastMCP attributes: {dir(mcp)}")
     if hasattr(mcp, 'server'):
         logging.info(f"FastMCP server attributes: {dir(mcp.server)}")
-    
+
     # https://github.com/jlowin/fastmcp/issues/855
     mcp.run(
         transport="http", host="0.0.0.0", port=8000, path="/mcp", stateless_http=True
