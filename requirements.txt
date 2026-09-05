@@ -1,3 +1,3 @@
-fastapi
-fastmcp
-requests
+fastapi>=0.110,<1
+fastmcp>=2.3,<3
+requests>=2.31,<3
