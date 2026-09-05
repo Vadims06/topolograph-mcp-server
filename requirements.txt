@@ -1,3 +1,5 @@
 fastapi>=0.110,<1
-fastmcp>=2.3,<3
+# >=2.8: server-level exclude_tags (the read-only tool-hiding boundary) does
+# not exist before 2.8.0. <3: v3 replaces it with mcp.disable().
+fastmcp>=2.8,<3
 requests>=2.31,<3
