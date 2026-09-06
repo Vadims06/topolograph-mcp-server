@@ -1,0 +1,85 @@
+name: contract-test
+
+# Validate a live Topolograph's /events and /graph responses against the MCP
+# server's schemas.py models (OSPF + IS-IS). schemas.py is a hand-kept copy of
+# the API shape and has drifted before.
+#
+# workflow_dispatch-only until tests/fixtures/ ship a topology + change events;
+# the Seed step and the "array has a sample" assertion hard-fail without them.
+# See tests/fixtures/README.md.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash -euo pipefail {0}
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Bring up the Topolograph stack
+        run: |
+          git clone --depth 1 https://github.com/Vadims06/topolograph-docker.git stack
+          cd stack
+          # env.example ships the seed web-API creds (ospf@topolograph.com / ospf);
+          # flask-create-creds-from-env provisions that user. No secrets needed.
+          cp env.example .env
+          docker compose up -d
+          for i in $(seq 1 60); do
+            curl -sf http://localhost:8080/api/openapi.json >/dev/null && break
+            sleep 3
+          done
+
+      - name: Seed a monitored graph plus change events, per protocol
+        run: |
+          # <proto>_parsed.json  -> POST /api/watcher/parsed  (builds the graph)
+          # <proto>_events.json  -> the CSV-parser payloads Fluent Bit sends,
+          #                         one per line, POSTed to /websocket so the
+          #                         adjacency/network event arrays are non-empty.
+          for proto in ospf isis; do
+            for f in "tests/fixtures/${proto}_parsed.json" "tests/fixtures/${proto}_events.json"; do
+              test -f "$f" || { echo "::error::missing $f"; exit 1; }
+            done
+            curl -sf -u "ospf@topolograph.com:ospf" -H 'Content-Type: application/json' \
+              -X POST http://localhost:8080/api/watcher/parsed \
+              --data @"tests/fixtures/${proto}_parsed.json"
+            # `|| [ -n "$line" ]` processes a final record with no trailing newline.
+            while IFS= read -r line || [ -n "$line" ]; do
+              [ -z "$line" ] && continue
+              curl -sf -u "ospf@topolograph.com:ospf" -H 'Content-Type: application/json' \
+                -X POST http://localhost:8080/websocket --data "$line"
+            done < "tests/fixtures/${proto}_events.json"
+          done
+
+      - name: Mint an API token for the test
+        id: token
+        run: |
+          jar=$(mktemp)
+          curl -sf -c "$jar" -d "email=ospf@topolograph.com&password=ospf" \
+            http://localhost:8080/login >/dev/null
+          curl -sf -b "$jar" -d "name=ci-contract&description=ci" \
+            http://localhost:8080/token_management/create_token >/dev/null
+          tok=$(curl -sf -b "$jar" http://localhost:8080/token_management/my_tokens \
+                | grep -oE 'sk-[A-Za-z0-9]{64}' | head -1 || true)
+          [ -n "$tok" ] || { echo "::error::could not mint an API token"; exit 1; }
+          echo "value=$tok" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - run: pip install -r tests/requirements-dev.txt
+
+      - name: Run the contract test
+        env:
+          TOPOLOGRAPH_API_BASE: http://localhost:8080/api
+          TOPOLOGRAPH_TEST_TOKEN: ${{ steps.token.outputs.value }}
+          MCP_CONTRACT_REQUIRE_ISIS: "1"
+          MCP_CONTRACT_REQUIRE_EVENTS: "1"
+        run: pytest tests/test_contract_live.py -v
