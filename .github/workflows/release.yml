@@ -1,0 +1,59 @@
+name: release
+
+# Publish the Docker image for each vX.Y.Z git tag. Public repo: GitHub-hosted
+# runners only, DOCKERHUB_* secrets unreadable from forks/PRs. workflow_dispatch
+# rebuilds an existing tag whose commit predates this workflow.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing git tag to build and publish (e.g. v1.3.0)"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    env:
+      # tag push -> the pushed tag; manual run -> the requested tag.
+      TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Image tag matches the git tag verbatim (v-prefixed).
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: vadims06/topolograph-mcp-server:${{ env.TAG }}
+
+      # Move :latest only if THIS tag is the newest stable vX.Y.Z, re-checked
+      # after the build so a concurrent or out-of-order newer push wins.
+      # Prereleases (a `-` suffix, e.g. v1.4.0-rc1) never take :latest.
+      - name: Publish :latest for the newest tag
+        run: |
+          git fetch --tags --force --prune
+          top=$(git tag -l 'v*' --sort=-v:refname | grep -v -- '-' | head -1)
+          if [ "$top" = "$TAG" ]; then
+            docker buildx imagetools create \
+              -t vadims06/topolograph-mcp-server:latest \
+              vadims06/topolograph-mcp-server:${TAG}
+          else
+            echo "skip :latest — newest stable tag is $top, this build is $TAG"
+          fi
