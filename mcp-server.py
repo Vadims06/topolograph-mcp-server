@@ -236,7 +236,8 @@ def get_network_by_graph_time(
         graph_time (str): REQUIRED - The specific graph time to query, use the most latest from get_all_graphs to get graph_time.
         network_w_digit_mask (str, optional): Network with mask (e.g., 10.0.0.0/24). Helpful when needed to find all devices which terminate the network
         ip_address (str, optional): IP address to find which network it belongs to
-        node_id (str, optional): Universal node identifier to find all networks terminated by this node
+        node_id (str, optional): Universal node identifier to find all networks terminated by this node.
+                                 Exact match only (no hostname or case-insensitive lookup here).
                                  - For OSPF: Use Router ID (e.g., "10.10.10.1")
                                  - For IS-IS: Use System ID (e.g., "1921.6800.1001")
 
@@ -506,7 +507,8 @@ def get_nodes(
 
     Output fields:
         dict with keys:
-            items: list of nodes with node_id, hostname, systemid, networks_count, areas, is_isis,
+            items: list of nodes with node_id (canonical graph name), display_name (human-readable
+                   text), hostname, systemid, networks_count, areas, is_isis,
                    node_attributes (role flags: {"abr":1,"asbr":0,"maxmetric":0} for OSPF, {"overload":1,"attached":0} for IS-IS)
             pagination: page, per_page, total, total_pages
 
