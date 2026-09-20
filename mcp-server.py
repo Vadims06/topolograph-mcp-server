@@ -548,6 +548,7 @@ def get_edges(
     include: Optional[List[str]] = None,
     page: int = 1,
     per_page: int = 50,
+    is_te_link: Optional[bool] = None,
 ) -> dict:
     """
     Get edges from a graph with optional filtering.
@@ -580,10 +581,14 @@ def get_edges(
           accounting for placed LSP tunnels -- lsp_left_bw_0..7 plus a
           human-readable lsp_reserved_bw/lsp_left_bw/lsp_bandwidth_usage pair
           at the default priority-7 pool), "lsps" (which LSP tunnels traverse
-          this edge), "is_te_link" (whether the edge is TE-enabled), "edge_key"
-          (stable identity, needed for get_lsps(via_edge_key=) on parallel/ECMP edges)
+          this edge), "is_te_link" (true when the link advertises at least one
+          optional TE value: TE metric, admin group, max/reservable/unreserved
+          bandwidth or SRLG; a zero counts, interface and neighbor addresses do
+          not), "edge_key" (stable identity, needed for get_lsps(via_edge_key=) on parallel/ECMP edges)
         page (int): Page number, 1-indexed (default: 1)
         per_page (int): Items per page (default: 50)
+        is_te_link (bool, optional): true keeps only TE links, false only links
+          that are not; any other type is rejected with HTTP 400
 
     Output fields:
         dict with keys:
@@ -606,6 +611,8 @@ def get_edges(
         params["area"] = area
     if include:
         params["include"] = ",".join(include)
+    if is_te_link is not None:
+        params["is_te_link"] = str(is_te_link).lower()
     if edge_query_params:
         params.update(edge_query_params)
 
@@ -811,9 +818,11 @@ def get_cspf_path(
         node_b (str): Destination node name
         bandwidth (str, optional): Required bandwidth, e.g. "2G", "500M", or a raw bps number
         metric_type (str, optional): "igp" (default) or "te"
-        admin_exclude_any (list[str], optional): Affinity group names to exclude
-        admin_include_any (list[str], optional): Affinity group names, at least one required
-        admin_include_all (list[str], optional): Affinity group names, all required
+        admin_exclude_any (list[str], optional): Admin groups to exclude. On an IS-IS graph a
+          group is the number of a bit of the link's admin group mask (bit 0 is the least
+          significant; "2" avoids mask 0x00000004); on a YAML diagram it is an affinity name
+        admin_include_any (list[str], optional): Admin groups, at least one required
+        admin_include_all (list[str], optional): Admin groups, all required
         srlg_exclude (list[int], optional): SRLG ids to exclude
         setup_priority (int, optional): RSVP-TE setup priority (0-7, default 7) -- selects
           which advertised Unreserved Bandwidth pool the bandwidth check runs against
