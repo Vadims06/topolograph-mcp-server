@@ -86,7 +86,7 @@ The MCP server will be available at `http://localhost:8000/mcp` and automaticall
 - `get_edges`: Query diagram edges (`include=["lsp_left_bw", "lsps", "is_te_link", "edge_key"]` for MPLS TE fields; `is_te_link=true|false` keeps only TE links or only the rest)
 - `get_lsps`: List/inspect MPLS TE LSP tunnels (filters: `status`, `via_node`, `via_edge`, `via_edge_key`)
 - `get_shortest_path`: Calculate the shortest path between two nodes (`with_lsps=true` to account for autoroute-enabled MPLS-TE tunnels)
-- `get_cspf_path`: Constrained-shortest-path (CSPF) feasibility check between two nodes; never mutates the graph
+- `get_cspf_path`: Constrained-shortest-path (CSPF) feasibility check between two nodes; never mutates the graph; optional `level` (1 or 2) restricts an IS-IS path to one level
 - `get_edge_failure_reaction`: Predict whole-network impact if one or more links go down; simulation only
 
 ### BGP topology tools (require Topolograph >= 2.69)

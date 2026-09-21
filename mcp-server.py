@@ -800,6 +800,7 @@ def get_cspf_path(
     admin_include_all: Optional[List[str]] = None,
     srlg_exclude: Optional[List[int]] = None,
     setup_priority: int = 7,
+    level: Optional[int] = None,
 ) -> CspfPathResponse:
     """
     Constrained-shortest-path (CSPF) query between two nodes.
@@ -826,6 +827,11 @@ def get_cspf_path(
         srlg_exclude (list[int], optional): SRLG ids to exclude
         setup_priority (int, optional): RSVP-TE setup priority (0-7, default 7) -- selects
           which advertised Unreserved Bandwidth pool the bandwidth check runs against
+        level (int, optional): IS-IS level, 1 or 2. Restricts the path to links that advertised
+          their TE data at that level; omit for no level restriction. No effect on a non-IS-IS
+          graph. Fails with isis_level_calculation_unavailable on a graph stored before per-level
+          IS-IS data existed (re-upload the LSDB), and with isis_level_unavailable_for_yaml_diagram
+          on a YAML diagram
 
     Output fields:
         CspfPathResponse: dict with keys:
@@ -838,6 +844,8 @@ def get_cspf_path(
     """
     url = f"{API_BASE}/graph/{graph_time}/cspf-path/{node_a}/{node_b}"
     params: dict = {"metric_type": metric_type, "setup_priority": setup_priority}
+    if level is not None:
+        params["level"] = level
     if bandwidth:
         params["bandwidth"] = bandwidth
     if admin_exclude_any:
