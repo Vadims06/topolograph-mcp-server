@@ -97,17 +97,22 @@ def _require_write_enabled():
 
 def raise_for_status_with_context(resp, graph_time: str):
     """Like resp.raise_for_status(), but on error transfers the backend's own
-    message (the JSON 'detail' field) and appends the graph_time, so the agent
-    can report exactly what the API said and which snapshot it concerned.
+    message (the JSON 'detail' or 'error' field) with its machine-readable
+    'code' and 'action', and appends the graph_time, so the agent can report
+    exactly what the API said, act on the code, and name the snapshot.
     """
     if resp.ok:
         return
     try:
         body = resp.json()
-        detail = (body.get("detail") or body.get("error")) if isinstance(body, dict) else None
     except ValueError:
-        detail = None
-    message = (detail or resp.text or "request failed").strip().rstrip(".")
+        body = None
+    if not isinstance(body, dict):
+        body = {}
+    message = (body.get("detail") or body.get("error") or resp.text or "request failed").strip().rstrip(".")
+    hints = [f"{key}={body[key]}" for key in ("code", "action") if body.get(key)]
+    if hints:
+        message = f"{message} ({', '.join(hints)})"
     raise ValueError(f"{message} in graph_time {graph_time}")
 
 
