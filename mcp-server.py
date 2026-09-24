@@ -5,7 +5,7 @@ from fastmcp.server.dependencies import get_http_request
 from mcp.types import ToolAnnotations
 import requests
 from starlette.requests import Request
-from typing import Optional, List
+from typing import Optional, List, Union
 import os
 import logging
 
@@ -14,7 +14,6 @@ from schemas import (
     NetworkEventsResponse,
     AdjacencyEventsResponse,
     EventsTimelineResponse,
-    ShortestPathResponse,
     CspfPathResponse,
     EdgeFailureReactionResponse,
     BgpGraph,
@@ -26,7 +25,7 @@ from schemas import (
     BgpRouteCompareResponse,
     BgpBindingsResponse,
     VrfInventoryResponse,
-    VpnRoutersResponse,
+    VpnsResponse,
 )
 
 
@@ -483,6 +482,9 @@ def get_nodes(
     overload: Optional[bool] = None,
     attached: Optional[bool] = None,
     maxmetric: Optional[bool] = None,
+    vni: Optional[int] = None,
+    vrf: Optional[str] = None,
+    rt: Optional[str] = None,
     page: int = 1,
     per_page: int = 50,
 ) -> dict:
@@ -496,10 +498,13 @@ def get_nodes(
         Note: 'network count' is the number of prefixes/networks on a node, NOT its
         neighbor/adjacency count. To count neighbors per router, use get_edges and
         count edges per src_node; do not derive neighbor counts from this tool.
+        protocol="bgp" answers "which leaves carry VNI/VRF X" (vni/vrf/rt) and
+        "which routers are BGP speakers" -- rows then carry can_build_path
+        instead of the IGP node fields above.
 
     Input fields:
         graph_time (str): The graph time identifier
-        protocol (str, optional): Filter: only return if graph matches protocol (ospf, ospfv3, isis, yaml)
+        protocol (str, optional): Filter: only return if graph matches protocol (ospf, ospfv3, isis, yaml, bgp)
         watcher (bool, optional): Filter: true for watcher-uploaded graphs, false for manually parsed
         area (str, optional): Filter: only return if graph contains this area (e.g. "0", "0.0.0.1", "49.0001")
         abr (bool, optional): OSPF role filter — true returns only Area Border Routers (false: only non-ABRs)
@@ -507,6 +512,9 @@ def get_nodes(
         overload (bool, optional): IS-IS filter — true returns only routers with the overload (OL) bit set
         attached (bool, optional): IS-IS filter — true returns only routers with the attached (ATT) bit set
         maxmetric (bool, optional): OSPF filter — true returns only routers in max-metric (RFC 3137 stub router) state
+        vni (int, optional): protocol="bgp" only -- keep the routers that are a VTEP for this L2VNI
+        vrf (str, optional): protocol="bgp" only -- keep the routers that are a VTEP for this VRF's L3VNI
+        rt (str, optional): protocol="bgp" only -- keep the routers whose resolved RIB view carries this route target
         page (int): Page number, 1-indexed (default: 1)
         per_page (int): Items per page (default: 50)
 
@@ -532,6 +540,9 @@ def get_nodes(
     for flag_name, flag_value in (("abr", abr), ("asbr", asbr), ("overload", overload), ("attached", attached), ("maxmetric", maxmetric)):
         if flag_value is not None:
             params[flag_name] = int(flag_value)
+    for name, value in (("vni", vni), ("vrf", vrf), ("rt", rt)):
+        if value is not None:
+            params[name] = value
 
     resp = requests.get(url, headers=get_auth_headers(), params=params)
     resp.raise_for_status()
@@ -750,37 +761,44 @@ def delete_lsp(graph_time: str, lsp_name: Optional[str] = None) -> dict:
 def get_shortest_path(
     graph_time: str,
     src_node: str,
-    dst_node: str,
+    dst_node: Union[str, List[str]],
     with_lsps: bool = False,
-) -> ShortestPathResponse:
+) -> dict:
     """
-    Calculate the shortest path between two nodes/devices in a graph/diagram.
+    Calculate the shortest path from one node to one or several destinations.
 
     Description:
         Plain IGP shortest path by default. For "what if this link is down"
         backup-path analysis, use get_edge_failure_reaction instead -- that
         question now has its own endpoint (whole-network impact, not just a
-        recomputed path).
+        recomputed path). Several dst_node values run one SPF from src_node and
+        return a cost/path per target plus the union of every target's edges
+        (MST-style, for colouring several VTEPs' underlay at once); with_lsps
+        takes one destination only.
 
     Input fields:
         graph_time (str): The graph time
         src_node (str): Source node Router ID (e.g., "10.10.10.1")
-        dst_node (str): Destination node Router ID (e.g., "20.20.20.1")
+        dst_node (str or list[str]): One destination Router ID, or several
+          (e.g., ["20.20.20.1", "30.30.30.1"])
         with_lsps (bool, optional): If true, account for autoroute-enabled
           MPLS-TE tunnels as forwarding shortcuts -- the path traffic actually
           takes given the tunnels currently in the graph, not the plain IGP
           path. Off by default (a signaled LSP does not redirect traffic on
-          its own without autoroute configured on the tunnel).
+          its own without autoroute configured on the tunnel). One dst_node
+          only; the API rejects it with several.
 
     Output fields:
-        ShortestPathResponse: A dictionary containing shortest path information with keys:
-            - spt_path_nodes_name_as_ll_in_ll: List of lists of node names representing shortest paths
-            - cost: Integer representing total path cost
-            - unbackup_paths_nodes_name_as_ll_in_ll: List of lists of node names representing backup paths
+        One dst_node: dict with spt_path_nodes_name_as_ll_in_ll (list of node-name
+          paths), cost, unbackup_paths_nodes_name_as_ll_in_ll.
+        Several dst_node: dict with targets (keyed by each destination: cost,
+          spt_path_nodes_name_as_ll_in_ll, unbackup_paths_nodes_name_as_ll_in_ll,
+          or error when unresolved), plus the edges every target's path crosses.
 
     Equivalent to GET /graph/{graph_time}/path/{src_node}/{dst_node}.
     """
-    url = f"{API_BASE}/graph/{graph_time}/path/{src_node}/{dst_node}"
+    dst = ",".join(dst_node) if isinstance(dst_node, list) else dst_node
+    url = f"{API_BASE}/graph/{graph_time}/path/{src_node}/{dst}"
     params: dict = {}
     if with_lsps:
         params["with_lsps"] = "true"
@@ -1026,7 +1044,6 @@ def search_bgp_routes(
     bgp_graph_time: str,
     router_id: Optional[str] = None,
     prefix: Optional[str] = None,
-    lpm: Optional[bool] = None,
     vrf: Optional[str] = None,
     rd: Optional[str] = None,
     rt: Optional[str] = None,
@@ -1067,8 +1084,8 @@ def search_bgp_routes(
     Input fields:
         bgp_graph_time (str): The BGP graph epoch to query
         router_id (str, optional): Scope the search to one speaker's resolved RIB view
-        prefix (str, optional): Exact or, with lpm, longest-prefix-match prefix
-        lpm (bool, optional): Treat prefix as a longest-prefix-match query
+        prefix (str, optional): CIDR is an exact match; an address returns every
+          covering route, longest prefix first
         vrf (str, optional), rd (str, optional), rt (str, optional): VPN identifiers
         afi (int, optional), safi (int, optional): Address family filters
         bmp_rib (str, optional): Filter by RIB tag (e.g. adj-rib-in-pre, loc-rib)
@@ -1108,8 +1125,6 @@ def search_bgp_routes(
     ):
         if value is not None:
             params[key] = value
-    if lpm is not None:
-        params["lpm"] = str(lpm).lower()
     if ribs:
         params["ribs"] = ribs
     if not router_id:
@@ -1370,19 +1385,162 @@ def get_vrf_inventory(graph_time: str, router_id: Optional[str] = None, rd: Opti
     tags={"read"},
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
 )
-def list_vpn_routers(graph_time: str) -> VpnRoutersResponse:
+def list_vpns(
+    graph_time: str,
+    router_id: Optional[str] = None,
+    page: int = 1,
+    per_page: int = 25,
+) -> VpnsResponse:
     """
-    Routers the bound BGP epochs know, with how well each one's VPN table is
-    observed -- start-node candidates for resolve_route on a VPN destination.
+    Answers "which VNI/VRF exists on which leaf": the fabric-wide VPN/VRF/VNI
+    inventory of the BGP epoch bound to this graph, or one router's own view.
+
+    Input fields:
+        graph_time (str): The IGP graph time
+        router_id (str, optional): Scope to one router's resolved RIB view;
+          omit for the fabric-wide list
+        page (int): Page number, 1-indexed (default: 1)
+        per_page (int): Items per page (default: 25)
 
     Output fields:
-        dict with key: items (list of VpnRouter, each with vpn_count, evidence,
-        can_build_path, assumptions)
+        VpnsResponse: dict with items (VpnRow: name, route_targets,
+        route_distinguishers, vni, l3vni, prefix_count), pagination, and,
+        router-scoped only, evidence/can_build_path/assumptions.
 
-    Equivalent to GET /graph/{graph_time}/vpn-routers.
+    Equivalent to GET /graph/{graph_time}/vpns or
+    GET /graph/{graph_time}/node/{router_id}/vpns.
     """
-    url = f"{API_BASE}/graph/{graph_time}/vpn-routers"
-    resp = requests.get(url, headers=get_auth_headers())
+    if router_id:
+        url = f"{API_BASE}/graph/{graph_time}/node/{router_id}/vpns"
+    else:
+        url = f"{API_BASE}/graph/{graph_time}/vpns"
+    params = {"page": page, "per_page": per_page}
+    resp = requests.get(url, headers=get_auth_headers(), params=params)
+    raise_for_status_with_context(resp, graph_time)
+    return resp.json()
+
+
+@mcp.tool(
+    tags={"read"},
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
+)
+def get_routes(
+    graph_time: str,
+    router_id: Optional[str] = None,
+    vni: Optional[int] = None,
+    vrf: Optional[str] = None,
+    rt: Optional[str] = None,
+    rd: Optional[str] = None,
+    vtep: Optional[str] = None,
+    prefix: Optional[str] = None,
+    mac: Optional[str] = None,
+    at: Optional[str] = None,
+    page: int = 1,
+    per_page: int = 50,
+) -> dict:
+    """
+    Answers "where is MAC/IP X", VRF/VNI contents, and hosts behind a leaf:
+    routes of the BGP epoch bound to this graph, current state by default.
+
+    Input fields:
+        graph_time (str): The IGP graph time
+        router_id (str, optional): Scope to one router's resolved RIB view;
+          omit for the whole bound epoch
+        vni (int, optional): EVPN L2VNI
+        vrf (str, optional): VRF name, resolved to its RDs across the bound
+          epoch's own routers
+        rt (str, optional): Any of the route's route targets
+        rd (str, optional): Route distinguisher
+        vtep (str, optional): EVPN originating IP or next-hop
+        prefix (str, optional): CIDR is an exact match; an address returns
+          every covering route, longest prefix first
+        mac (str, optional): EVPN exact match
+        at (str, optional): Point in time (ISO 8601) instead of current state
+        page (int): Page number, 1-indexed (default: 1)
+        per_page (int): Items per page (default: 50)
+
+    Output fields:
+        dict with items (route rows, current state carries the winning
+        nexthop) and pagination. An EVPN row's evpn.route_type is the EVPN
+        route type: RT-1 Ethernet A-D, RT-2 MAC/IP, RT-3 IMET, RT-4 Ethernet
+        Segment, RT-5 IP prefix.
+
+    Equivalent to GET /graph/{graph_time}/routes or
+    GET /graph/{graph_time}/node/{router_id}/routes.
+    """
+    if router_id:
+        url = f"{API_BASE}/graph/{graph_time}/node/{router_id}/routes"
+    else:
+        url = f"{API_BASE}/graph/{graph_time}/routes"
+    params: dict = {"page": page, "per_page": per_page}
+    for key, value in (
+        ("vni", vni), ("vrf", vrf), ("rt", rt), ("rd", rd),
+        ("vtep", vtep), ("prefix", prefix), ("mac", mac), ("at", at),
+    ):
+        if value is not None:
+            params[key] = value
+
+    resp = requests.get(url, headers=get_auth_headers(), params=params)
+    raise_for_status_with_context(resp, graph_time)
+    return resp.json()
+
+
+@mcp.tool(
+    tags={"read"},
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
+)
+def get_route_events(
+    graph_time: str,
+    start_time: Optional[str] = None,
+    end_time: Optional[str] = None,
+    last_minutes: Optional[int] = None,
+    vni: Optional[int] = None,
+    vrf: Optional[str] = None,
+    rt: Optional[str] = None,
+    rd: Optional[str] = None,
+    prefix: Optional[str] = None,
+    mac: Optional[str] = None,
+    page: int = 1,
+    per_page: int = 50,
+) -> dict:
+    """
+    Answers "did MAC/IP X move, from where, when": route event history
+    (add/withdraw/MAC-move) of the BGP epoch bound to this graph.
+
+    Input fields:
+        graph_time (str): The IGP graph time
+        start_time (str, optional), end_time (str, optional): ISO 8601 window
+        last_minutes (int, optional): Look back this many minutes; overrides
+          start_time/end_time
+        vni (int, optional), vrf (str, optional), rt (str, optional),
+        rd (str, optional), prefix (str, optional), mac (str, optional): same
+          route filters as get_routes
+        page (int): Page number, 1-indexed (default: 1)
+        per_page (int): Items per page (default: 50)
+
+    Output fields:
+        dict: route and peer events interleaved by time; a route row carries
+        moved_from_vtep when it is a MAC's arrival on a new VTEP.
+
+    Equivalent to GET /events/{graph_time}/routes.
+    """
+    url = f"{API_BASE}/events/{graph_time}/routes"
+    params: dict = {"page": page, "per_page": per_page}
+    if last_minutes:
+        params["last_minutes"] = last_minutes
+    else:
+        if start_time:
+            params["start_time"] = start_time
+        if end_time:
+            params["end_time"] = end_time
+    for key, value in (
+        ("vni", vni), ("vrf", vrf), ("rt", rt), ("rd", rd),
+        ("prefix", prefix), ("mac", mac),
+    ):
+        if value is not None:
+            params[key] = value
+
+    resp = requests.get(url, headers=get_auth_headers(), params=params)
     raise_for_status_with_context(resp, graph_time)
     return resp.json()
 

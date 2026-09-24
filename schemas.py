@@ -153,7 +153,7 @@ class Graph(TypedDict):
     networks: dict
     areas: List[Union[int, str]]
     watcher_name: NotRequired[Optional[str]]
-    protocol: str  # ospf, ospfv3, isis, yaml
+    protocols: List[str]  # this graph's IGP, plus bgp when a BGP epoch is bound
     is_from_watcher: bool  # whether from watcher
 
 
@@ -254,12 +254,13 @@ class Vrf(TypedDict):
     address_families: List[VrfAddressFamily]
 
 
-class VpnRouter(TypedDict):
-    router_id: str
-    vpn_count: int
-    evidence: str  # loc_rib, adj_rib_in, loc_rib_reflected, adj_rib_out
-    can_build_path: bool
-    assumptions: NotRequired[List[str]]
+class VpnRow(TypedDict):
+    name: Optional[str]  # VRF name, when known; else grouped by route target
+    route_targets: List[str]
+    route_distinguishers: List[str]
+    vni: Optional[int]
+    l3vni: Optional[int]
+    prefix_count: int
 
 
 class BgpNodesResponse(TypedDict):
@@ -290,6 +291,11 @@ class VrfInventoryResponse(TypedDict):
     items: List[Vrf]
 
 
-class VpnRoutersResponse(TypedDict):
-    items: List[VpnRouter]
+class VpnsResponse(TypedDict):
+    items: List[VpnRow]
+    pagination: Pagination
+    # Router-scoped only (list_vpns(router_id=...)):
+    evidence: NotRequired[str]  # loc_rib, adj_rib_in, loc_rib_reflected, adj_rib_out
+    can_build_path: NotRequired[bool]
+    assumptions: NotRequired[List[str]]
 
