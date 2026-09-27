@@ -160,8 +160,6 @@ class Graph(TypedDict):
 class BgpGraph(TypedDict):
     graph_time: str
     timestamp: str
-    srcid: NotRequired[Optional[str]]
-    sesid: NotRequired[Optional[str]]
     nodes: NotRequired[list]
     sessions: NotRequired[list]
 

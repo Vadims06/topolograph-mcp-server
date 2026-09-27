@@ -1198,7 +1198,7 @@ def compare_bgp_routes(
         t1 (str): ISO 8601 timestamp, the later instant
         router_id (str, optional): Scope the diff to one reporting speaker
         t0_graph_time (str, optional): Epoch of t0 when it differs from bgp_graph_time
-          (collector restart); must be the same collector (srcid)
+          (collector restart); must be the same collector
 
     Output fields:
         dict with key: items (list of BgpRouteDiffRow; diff_status is
