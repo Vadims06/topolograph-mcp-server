@@ -82,10 +82,10 @@ The MCP server will be available at `http://localhost:8000/mcp` and automaticall
 - `get_network_events`: Retrieve network up/down events
 - `get_adjacency_events`: Get node/host and link events
 - `get_events_timeline`: Node/host events grouped into time waves for incident narration
-- `get_nodes`: Query diagram nodes (filter by role flags: ABR/ASBR, IS-IS overload/attached)
+- `get_nodes`: Query diagram nodes (filter by role flags: ABR/ASBR, IS-IS overload/attached); `protocol="bgp"` with `vni`, `vrf` or `rt` lists the leaves (VTEPs) that carry that VNI, VRF or route target
 - `get_edges`: Query diagram edges (`include=["lsp_left_bw", "lsps", "is_te_link", "edge_key"]` for MPLS TE fields; `is_te_link=true|false` keeps only TE links or only the rest)
 - `get_lsps`: List/inspect MPLS TE LSP tunnels (filters: `status`, `via_node`, `via_edge`, `via_edge_key`)
-- `get_shortest_path`: Calculate the shortest path between two nodes (`with_lsps=true` to account for autoroute-enabled MPLS-TE tunnels)
+- `get_shortest_path`: Calculate the shortest path between two nodes (`with_lsps=true` to account for autoroute-enabled MPLS-TE tunnels); `dst_node` may be a list of targets, such as every VTEP of a VNI, answered from one SPF
 - `get_cspf_path`: Constrained-shortest-path (CSPF) feasibility check between two nodes; never mutates the graph; optional `level` (1 or 2) restricts an IS-IS path to one level
 - `get_edge_failure_reaction`: Predict whole-network impact if one or more links go down; simulation only
 
@@ -100,7 +100,18 @@ The MCP server will be available at `http://localhost:8000/mcp` and automaticall
 - `get_bgp_events_timeline`: BGP session/route monitoring events
 - `list_bgp_bindings` / `get_bgp_binding`: BGP-to-IGP graph correlation
 - `resolve_route`: Resolve a path to a destination, including VPN/MPLS handoffs
-- `get_vrf_inventory` / `list_vpn_routers`: VRF inventory and VPN start-node candidates for `resolve_route`
+- `get_vrf_inventory`: VRF inventory
+
+### BGP VPN and EVPN tools on the IGP graph (require Topolograph >= 2.73)
+
+Asked with the OSPF/IS-IS `graph_time`; the latest BGP epoch of every source bound to that graph answers.
+
+- `list_vpns`: VNIs and VRFs of the fabric, or the VPNs one router (`router_id`) sees
+- `get_routes`: Where a MAC or IP is (leaf, VNI, VRF, ESI), what a VRF or VNI holds, and routes behind one VTEP. Filters: `mac`, `prefix`, `vni`, `vrf`, `rt`, `rd`, `vtep`, `at`; `router_id` scopes it to one router's RIB view
+- `get_route_events`: Route history; a MAC's arrival on a new VTEP carries `moved_from_vtep`
+
+EVPN route types 1 to 5 are covered (RFC 7432, RFC 9136); the fields are described in the
+[BMP Watcher guide](https://docs.topolograph.com/monitoring/bmp-watcher/#evpn).
 
 ### Mutation tools (hidden and disabled when `TOPOLOGRAPH_MCP_READ_ONLY=true`)
 

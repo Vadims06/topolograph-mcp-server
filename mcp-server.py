@@ -37,7 +37,7 @@ mcp = FastMCP(
     instructions="""
               Use this MCP in order to get details about OSPF/IS-IS domain.
               Tool provides informations about number of nodes and links are in OSPF/IS-IS domain""",
-    version="1.4.0",
+    version="1.5.0",
 )
 
 # Base URL for your Flask+Connexion API
@@ -1393,7 +1393,7 @@ def list_vpns(
 ) -> VpnsResponse:
     """
     Answers "which VNI/VRF exists on which leaf": the fabric-wide VPN/VRF/VNI
-    inventory of the BGP epoch bound to this graph, or one router's own view.
+    inventory of the BGP epochs bound to this graph, or one router's own view.
 
     Input fields:
         graph_time (str): The IGP graph time
@@ -1440,7 +1440,7 @@ def get_routes(
 ) -> dict:
     """
     Answers "where is MAC/IP X", VRF/VNI contents, and hosts behind a leaf:
-    routes of the BGP epoch bound to this graph, current state by default.
+    routes of the BGP epochs bound to this graph (the latest of every source), current state by default.
 
     Input fields:
         graph_time (str): The IGP graph time
@@ -1505,7 +1505,7 @@ def get_route_events(
 ) -> dict:
     """
     Answers "did MAC/IP X move, from where, when": route event history
-    (add/withdraw/MAC-move) of the BGP epoch bound to this graph.
+    (add/withdraw/MAC-move) of the BGP epochs bound to this graph.
 
     Input fields:
         graph_time (str): The IGP graph time
