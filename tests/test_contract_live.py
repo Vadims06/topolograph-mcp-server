@@ -63,7 +63,8 @@ def monitored_graphs() -> dict[str, str]:
     items = body["items"] if isinstance(body, dict) else body
     picked: dict[str, str] = {}
     for g in items:
-        picked.setdefault(g.get("protocol", "?"), g["graph_time"])
+        for protocol in g.get("protocols", []) or ["?"]:
+            picked.setdefault(protocol, g["graph_time"])
     return picked
 
 
