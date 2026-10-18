@@ -73,6 +73,8 @@ The MCP server will be available at `http://localhost:8000/mcp` and automaticall
 
 ## Available Tools
 
+The server works with both Topolograph editions through the REST API: Community (free, self-hosted or topolograph.com) and Enterprise ([comparison](https://topolograph.com/#editions)). Tools that read watcher events or event history return data only on Enterprise, where watchers feed Topolograph: `get_network_events`, `get_adjacency_events`, `get_events_timeline`, `get_bgp_events_timeline` and `get_route_events`. The other tools work on uploaded graphs.
+
 ### Read tools (always available)
 
 - `get_all_graphs`: List available graphs with filtering options
