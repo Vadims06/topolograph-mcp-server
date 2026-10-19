@@ -37,7 +37,7 @@ mcp = FastMCP(
     instructions="""
               Use this MCP in order to get details about OSPF/IS-IS domain.
               Tool provides informations about number of nodes and links are in OSPF/IS-IS domain""",
-    version="1.5.0",
+    version="1.5.1",
 )
 
 # Base URL for your Flask+Connexion API
@@ -94,7 +94,7 @@ def _require_write_enabled():
         )
 
 
-def raise_for_status_with_context(resp, graph_time: str):
+def raise_for_status_with_context(resp, graph_time: str = ""):
     """Like resp.raise_for_status(), but on error transfers the backend's own
     message (the JSON 'detail' or 'error' field) with its machine-readable
     'code' and 'action', and appends the graph_time, so the agent can report
@@ -112,7 +112,7 @@ def raise_for_status_with_context(resp, graph_time: str):
     hints = [f"{key}={body[key]}" for key in ("code", "action") if body.get(key)]
     if hints:
         message = f"{message} ({', '.join(hints)})"
-    raise ValueError(f"{message} in graph_time {graph_time}")
+    raise ValueError(f"{message} in graph_time {graph_time}" if graph_time else message)
 
 
 def require_watcher_graph(graph_time: str):
@@ -141,7 +141,7 @@ def get_graph_by_time(graph_time: str):
     """
     url = f"{API_BASE}/graph/{graph_time}"
     resp = requests.get(url, headers=get_auth_headers())
-    resp.raise_for_status()
+    raise_for_status_with_context(resp, graph_time)
     return resp.json()
 
 @mcp.tool(
@@ -197,7 +197,7 @@ def get_all_graphs(
         params["latest_only"] = "true"
 
     resp = requests.get(url, headers=get_auth_headers(), params=params)
-    resp.raise_for_status()
+    raise_for_status_with_context(resp)
     return resp.json()
 
 
@@ -213,7 +213,7 @@ def upload_graph(graph: dict):
     _require_write_enabled()
     url = f"{API_BASE}/graph"
     resp = requests.post(url, json=graph, headers=get_auth_headers())
-    resp.raise_for_status()
+    raise_for_status_with_context(resp)
     return resp.json()
 
 
@@ -265,7 +265,7 @@ def get_network_by_graph_time(
         params["node_id"] = node_id
 
     resp = requests.get(url, headers=get_auth_headers(), params=params)
-    resp.raise_for_status()
+    raise_for_status_with_context(resp, graph_time)
     return resp.json()
 
 
@@ -300,7 +300,7 @@ def get_graph_status(graph_time: str) -> dict:
     """
     url = f"{API_BASE}/graph/{graph_time}/status"
     resp = requests.get(url, headers=get_auth_headers())
-    resp.raise_for_status()
+    raise_for_status_with_context(resp, graph_time)
     return resp.json()
 
 
@@ -349,7 +349,7 @@ def get_network_events(
             params["end_time"] = end_time
 
     resp = requests.get(url, headers=get_auth_headers(), params=params)
-    resp.raise_for_status()
+    raise_for_status_with_context(resp, graph_time)
     return resp.json()
 
 
@@ -400,7 +400,7 @@ def get_adjacency_events(
             params["end_time"] = end_time
 
     resp = requests.get(url, headers=get_auth_headers(), params=params)
-    resp.raise_for_status()
+    raise_for_status_with_context(resp, graph_time)
     return resp.json()
 
 
@@ -464,7 +464,7 @@ def get_events_timeline(
             params["end_time"] = end_time
 
     resp = requests.get(url, headers=get_auth_headers(), params=params)
-    resp.raise_for_status()
+    raise_for_status_with_context(resp, graph_time)
     return resp.json()
 
 
@@ -545,7 +545,7 @@ def get_nodes(
             params[name] = value
 
     resp = requests.get(url, headers=get_auth_headers(), params=params)
-    resp.raise_for_status()
+    raise_for_status_with_context(resp, graph_time)
     return resp.json()
 
 
@@ -940,7 +940,7 @@ def list_bgp_graphs(page: int = 1, per_page: int = 50) -> dict:
     """
     url = f"{API_BASE}/bgp-graphs"
     resp = requests.get(url, headers=get_auth_headers(), params={"page": page, "per_page": per_page})
-    resp.raise_for_status()
+    raise_for_status_with_context(resp)
     return resp.json()
 
 

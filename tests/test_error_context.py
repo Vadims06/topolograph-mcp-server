@@ -51,3 +51,35 @@ def test_plain_detail_message_is_unchanged(server):
         server.raise_for_status_with_context(response, "g1")
 
     assert str(raised.value) == "Graph not found in graph_time g1"
+
+
+REFUSAL = "Events of this graph are not available: its watcher is not registered in Topolograph or is registered as Topology only"
+
+
+class GraphResponse:
+    ok = True
+    text = ""
+
+    def json(self):
+        return {"is_from_watcher": True}
+
+    def raise_for_status(self):
+        pass
+
+
+class RefusalResponse(ErrorResponse):
+    def raise_for_status(self):
+        raise RuntimeError("403 Client Error: FORBIDDEN")
+
+
+@pytest.mark.parametrize("tool", ["get_network_events", "get_adjacency_events", "get_events_timeline"])
+def test_an_events_refusal_reaches_the_agent_with_the_server_text(server, monkeypatch, tool):
+    def fake_get(url, **_kwargs):
+        return RefusalResponse({"error": REFUSAL + "."}) if "/events" in url else GraphResponse()
+
+    monkeypatch.setattr(server.requests, "get", fake_get)
+
+    with pytest.raises(ValueError) as raised:
+        getattr(server, tool).fn(graph_time="g1")
+
+    assert str(raised.value) == f"{REFUSAL} in graph_time g1"
