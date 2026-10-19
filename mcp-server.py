@@ -37,7 +37,7 @@ mcp = FastMCP(
     instructions="""
               Use this MCP in order to get details about OSPF/IS-IS domain.
               Tool provides informations about number of nodes and links are in OSPF/IS-IS domain""",
-    version="1.5.0",
+    version="1.5.1",
 )
 
 # Base URL for your Flask+Connexion API
