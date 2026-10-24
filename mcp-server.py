@@ -911,7 +911,8 @@ def get_edge_failure_reaction(graph_time: str, failed_edges: list[list[str]]) ->
     Output fields:
         EdgeFailureReactionResponse: dict with keys:
             - isGraphStillConnected: bool
-            - affectedLinks: {sptPathsIncreasedInPercent, sptPathsDecreasedInPercent}
+            - affectedLinks: {sptPathsIncreasedInPercent, sptPathsDecreasedInPercent},
+              each a list of {from, to, value} links, value in percent
             - disjointedNodes: list of node-name groups, if the graph split
 
     Equivalent to POST /network_reaction/edge_failure/.

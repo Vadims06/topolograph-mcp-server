@@ -135,9 +135,13 @@ class CspfPathResponse(TypedDict):
     reason: str
 
 
+# functional form: "from" is a Python keyword
+AffectedLink = TypedDict("AffectedLink", {"from": str, "to": str, "value": int})
+
+
 class AffectedLinks(TypedDict):
-    sptPathsIncreasedInPercent: dict
-    sptPathsDecreasedInPercent: dict
+    sptPathsIncreasedInPercent: List[AffectedLink]
+    sptPathsDecreasedInPercent: List[AffectedLink]
 
 
 class EdgeFailureReactionResponse(TypedDict):
