@@ -135,12 +135,16 @@ class CspfPathResponse(TypedDict):
     reason: str
 
 
+# functional form: "from" is a Python keyword
+AffectedLink = TypedDict("AffectedLink", {"edge_key": str, "from": str, "to": str, "value": int})
+
+
 class AffectedLinks(TypedDict):
-    sptPathsIncreasedInPercent: dict
-    sptPathsDecreasedInPercent: dict
+    sptPathsIncreasedInPercent: List[AffectedLink]
+    sptPathsDecreasedInPercent: List[AffectedLink]
 
 
-class EdgeFailureReactionResponse(TypedDict):
+class NetworkReactionResponse(TypedDict):
     isGraphStillConnected: bool
     affectedLinks: AffectedLinks
     disjointedNodes: List[List[str]]
