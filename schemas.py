@@ -136,7 +136,7 @@ class CspfPathResponse(TypedDict):
 
 
 # functional form: "from" is a Python keyword
-AffectedLink = TypedDict("AffectedLink", {"from": str, "to": str, "value": int})
+AffectedLink = TypedDict("AffectedLink", {"edge_key": str, "from": str, "to": str, "value": int})
 
 
 class AffectedLinks(TypedDict):
