@@ -15,7 +15,7 @@ from schemas import (
     AdjacencyEventsResponse,
     EventsTimelineResponse,
     CspfPathResponse,
-    EdgeFailureReactionResponse,
+    NetworkReactionResponse,
     BgpGraph,
     BgpRouteSummary,
     BgpBinding,
@@ -892,12 +892,42 @@ def get_cspf_path(
     tags={"read"},
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
 )
-def get_edge_failure_reaction(graph_time: str, failed_edges: list[list[str]]) -> EdgeFailureReactionResponse:
+def get_node_failure_reaction(graph_time: str, failed_nodes: list[str]) -> NetworkReactionResponse:
+    """
+    Predict the whole-network impact if one or more routers go down.
+
+    Description:
+        Whether the graph stays connected and which links see more or less
+        traffic once these routers fail. A simulation only: nothing is
+        changed in the graph.
+
+    Input fields:
+        graph_time (str): The graph time
+        failed_nodes (list[str]): Node names of the failed routers, e.g. ["10.10.10.2"]
+
+    Output fields:
+        NetworkReactionResponse: the same keys as get_edge_failure_reaction.
+
+    Equivalent to POST /network_reaction/node_failure/.
+    """
+    url = f"{API_BASE}/network_reaction/node_failure/"
+    payload = {"graph_time": graph_time, "failed_nodes_list": failed_nodes}
+
+    resp = requests.post(url, json=payload, headers=get_auth_headers())
+    raise_for_status_with_context(resp, graph_time)
+    return resp.json()
+
+
+@mcp.tool(
+    tags={"read"},
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
+)
+def get_edge_failure_reaction(graph_time: str, failed_edges: list[list[str]]) -> NetworkReactionResponse:
     """
     Predict the whole-network impact if one or more links go down.
 
     Description:
-        Same shape as the node-failure prediction, for links instead of
+        Same shape as get_node_failure_reaction, for links instead of
         nodes: whether the graph stays connected, and the traffic
         rerouting pattern (which links see more/less traffic). This is a
         simulation only: it does not fail any link or otherwise mutate the
@@ -909,7 +939,7 @@ def get_edge_failure_reaction(graph_time: str, failed_edges: list[list[str]]) ->
           e.g. [["10.10.10.1", "10.10.10.2"]]
 
     Output fields:
-        EdgeFailureReactionResponse: dict with keys:
+        NetworkReactionResponse: dict with keys:
             - isGraphStillConnected: bool
             - affectedLinks: {sptPathsIncreasedInPercent, sptPathsDecreasedInPercent},
               each a list of {from, to, value} links, value in percent

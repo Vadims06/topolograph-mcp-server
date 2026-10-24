@@ -144,7 +144,7 @@ class AffectedLinks(TypedDict):
     sptPathsDecreasedInPercent: List[AffectedLink]
 
 
-class EdgeFailureReactionResponse(TypedDict):
+class NetworkReactionResponse(TypedDict):
     isGraphStillConnected: bool
     affectedLinks: AffectedLinks
     disjointedNodes: List[List[str]]
