@@ -4,6 +4,7 @@ import pytest
 
 class ErrorResponse:
     ok = False
+    status_code = 400
     text = ""
 
     def __init__(self, body):

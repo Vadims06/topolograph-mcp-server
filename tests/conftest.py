@@ -16,3 +16,19 @@ def server():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+class _StubResponse:
+    status_code = 200
+    ok = True
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return {}
+
+
+@pytest.fixture
+def stub_response():
+    return _StubResponse()
