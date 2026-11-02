@@ -43,7 +43,7 @@ Optional read-only mode (defaults to `true`, recommended for agent-facing deploy
 export TOPOLOGRAPH_MCP_READ_ONLY="true"
 ```
 
-When enabled, mutation tools (`upload_graph`, `add_lsp`, `update_lsp`, `delete_lsp`) are
+When enabled, mutation tools (`upload_graph`, `update_nodes`, `add_lsp`, `update_lsp`, `delete_lsp`) are
 removed from the advertised tool surface (`tools/list`) and cannot be called, even by a
 client that already knows their name. Set to `false` only for trusted/admin deployments
 that need write access.
@@ -90,6 +90,13 @@ The MCP server will be available at `http://localhost:8000/mcp` and automaticall
 - `get_node_failure_reaction`: Predict whole-network impact if one or more routers go down; simulation only
 - `get_edge_failure_reaction`: Predict whole-network impact if one or more links go down; simulation only
 
+- `get_graph_analysis`: Whole-graph reports (`kind`: central-nodes, most-loaded, single-point-of-failure, fault-tolerant, heatmap, unsym-paths, unidir-edges, backup-paths-in-ecmp, duplicated-terminated-networks, network-score); optional `at`
+- `get_path_tree`: The shortest-path tree from (`direction="out"`) or to (`"in"`) one node
+- `get_underlay_paths`: Shortest IGP paths between two sets of routers, as one union
+- `get_backup_paths_in_inter_area`: Backup paths between areas with the host groups they cross
+
+A rate-limited call (HTTP 429) fails with `retry_after_sec` in the message.
+
 ### BGP topology tools (require Topolograph >= 2.69)
 
 - `list_bgp_graphs` / `get_bgp_graph`: List/fetch BGP graph epochs
@@ -117,6 +124,7 @@ EVPN route types 1 to 5 are covered (RFC 7432, RFC 9136); the fields are describ
 ### Mutation tools (hidden and disabled when `TOPOLOGRAPH_MCP_READ_ONLY=true`)
 
 - `upload_graph`: Upload new graphs to the API
+- `update_nodes`: Set hostnames and Router IDs of several nodes of an LSDB graph in one request (tagged destructive)
 - `add_lsp` / `update_lsp` / `delete_lsp`: Create, update, and delete MPLS TE LSP tunnels (`delete_lsp` is also tagged destructive)
 
 Tools are tagged `read`, `write`, and/or `destructive` in source, and carry standard MCP
