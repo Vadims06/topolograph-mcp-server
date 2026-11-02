@@ -92,6 +92,7 @@ The MCP server will be available at `http://localhost:8000/mcp` and automaticall
 
 - `get_graph_analysis`: Whole-graph reports (`kind`: central-nodes, most-loaded, single-point-of-failure, fault-tolerant, heatmap, unsym-paths, unidir-edges, backup-paths-in-ecmp, duplicated-terminated-networks, network-score); optional `at`
 - `get_path_tree`: The shortest-path tree from (`direction="out"`) or to (`"in"`) one node
+- `get_backup_path`: The shortest path once links (`edge_key`) or routers fail, or link costs change; simulation only
 - `get_underlay_paths`: Shortest IGP paths between two sets of routers, as one union
 - `get_backup_paths_in_inter_area`: Backup paths between areas with the host groups they cross
 

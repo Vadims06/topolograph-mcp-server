@@ -961,6 +961,55 @@ def get_edge_failure_reaction(graph_time: str, failed_edges: list[list[str]]) ->
     tags={"read"},
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
 )
+def get_backup_path(
+    graph_time: str,
+    src_node: str,
+    dst_node: str,
+    failed_edges: Optional[list[str]] = None,
+    failed_nodes: Optional[list[str]] = None,
+    changed_costs: Optional[list[dict]] = None,
+    shared_media: bool = False,
+    at: Optional[str] = None,
+) -> dict:
+    """
+    The shortest path once links or routers fail, or link costs change. Nothing is changed in the graph.
+
+    Input fields:
+        graph_time (str): The graph time
+        src_node, dst_node (str): Node name, hostname or IS-IS System ID
+        failed_edges (list[str], optional): edge_key values from get_edges(include=["edge_key"]); each
+          link fails in both directions
+        failed_nodes (list[str], optional): routers removed from the graph
+        changed_costs (list[dict], optional): [{"edge_key": "...", "cost": 100}]; the cost of that
+          direction only
+        shared_media (bool, optional): a failed link on a multi-access segment fails every adjacency of it
+        at (str, optional): ISO 8601 moment; a watcher graph is shown with the events up to it
+        At least one of failed_edges, failed_nodes and changed_costs is required.
+
+    Output fields:
+        dict with result (path and cost), nodes (routers on the path) and edges (links on the path
+        and the failed links).
+
+    Equivalent to POST /graph/{graph_time}/analyse/spt-edge-failure.
+    """
+    body: dict = {"from": src_node, "to": dst_node, "shared_media": shared_media}
+    if failed_edges:
+        body["failed_edges"] = failed_edges
+    if failed_nodes:
+        body["failed_nodes"] = failed_nodes
+    if changed_costs:
+        body["changed_costs"] = changed_costs
+    params = {"at": at} if at else {}
+    resp = requests.post(
+        f"{API_BASE}/graph/{graph_time}/analyse/spt-edge-failure", json=body, params=params, headers=get_auth_headers())
+    raise_for_status_with_context(resp, graph_time)
+    return resp.json()
+
+
+@mcp.tool(
+    tags={"read"},
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
+)
 def get_graph_analysis(graph_time: str, kind: str, at: Optional[str] = None) -> dict:
     """
     Whole-graph report: central routers, most loaded links, single points of failure and more.
