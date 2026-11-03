@@ -54,6 +54,9 @@ if not API_BASE:
 # exposing every mutation tool.
 READ_ONLY = os.getenv("TOPOLOGRAPH_MCP_READ_ONLY", "true").strip().lower() not in ("0", "false", "no", "off")
 
+# a host behind a reverse proxy sets 127.0.0.1 so the plain-HTTP port is not public
+BIND_HOST = os.getenv("TOPOLOGRAPH_MCP_HOST", "0.0.0.0")
+
 
 def get_auth_headers():
     """Get authentication headers for API requests"""
@@ -1621,5 +1624,5 @@ if __name__ == "__main__":
 
     # https://github.com/jlowin/fastmcp/issues/855
     mcp.run(
-        transport="http", host="0.0.0.0", port=8000, path="/mcp", stateless_http=True
+        transport="http", host=BIND_HOST, port=8000, path="/mcp", stateless_http=True
     )

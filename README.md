@@ -56,7 +56,7 @@ Start the MCP server:
 python mcp-server.py
 ```
 
-The server runs on `http://0.0.0.0:8000/mcp` by default.
+The server runs on `http://0.0.0.0:8000/mcp` by default. Behind a reverse proxy, set `TOPOLOGRAPH_MCP_HOST=127.0.0.1` so the plain-HTTP port is reachable only through the proxy.
 
 ### Docker Compose Integration
 
