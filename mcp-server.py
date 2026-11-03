@@ -503,7 +503,7 @@ def get_nodes(
         instead of the IGP node fields above.
 
     Input fields:
-        graph_time (str): The graph time identifier
+        graph_time (str): The graph time identifier, or the name of your OSPF/IS-IS watcher (Enterprise) to read its newest snapshot with events up to now; the answer then names that snapshot in graph_time
         protocol (str, optional): Filter: only return if graph matches protocol (ospf, ospfv3, isis, yaml, bgp)
         watcher (bool, optional): Filter: true for watcher-uploaded graphs, false for manually parsed
         area (str, optional): Filter: only return if graph contains this area (e.g. "0", "0.0.0.1", "49.0001")
@@ -585,7 +585,7 @@ def get_edges(
         User-defined attributes (e.g. isp_provider=verizon) are also supported.
 
     Input fields:
-        graph_time (str): The graph time identifier
+        graph_time (str): The graph time identifier, or the name of your OSPF/IS-IS watcher (Enterprise) to read its newest snapshot with events up to now; the answer then names that snapshot in graph_time
         src_node (str, optional): Filter edges by source node name
         dst_node (str, optional): Filter edges by destination node name
         protocol (str, optional): Graph-level filter (ospf, ospfv3, isis, yaml)
@@ -1474,7 +1474,9 @@ def get_routes(
     routes of the BGP epochs bound to this graph (the latest of every source), current state by default.
 
     Input fields:
-        graph_time (str): The IGP graph time
+        graph_time (str): The IGP graph time, or the name of your OSPF/IS-IS
+          watcher (Enterprise): the snapshot alive at `at` (or now) is read and
+          named in the answer's graph_time
         router_id (str, optional): Scope to one router's resolved RIB view;
           omit for the whole bound epoch
         vni (int, optional): EVPN L2VNI
