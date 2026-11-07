@@ -54,6 +54,9 @@ if not API_BASE:
 # exposing every mutation tool.
 READ_ONLY = os.getenv("TOPOLOGRAPH_MCP_READ_ONLY", "true").strip().lower() not in ("0", "false", "no", "off")
 
+# a host behind a reverse proxy sets 127.0.0.1 so the plain-HTTP port is not public
+BIND_HOST = os.getenv("TOPOLOGRAPH_MCP_HOST", "0.0.0.0")
+
 
 def get_auth_headers():
     """Get authentication headers for API requests"""
@@ -94,6 +97,13 @@ def _require_write_enabled():
         )
 
 
+# The agent passes this on to a user who is not signed in, instead of the bare API text.
+SIGN_IN_REQUIRED = (
+    "Not signed in to Topolograph. On topolograph.com, sign in to ask about your graphs. "
+    "On a self-hosted Topolograph, set a valid Topolograph API token for the agent."
+)
+
+
 def raise_for_status_with_context(resp, graph_time: str = ""):
     """Like resp.raise_for_status(), but on error transfers the backend's own
     message (the JSON 'detail' or 'error' field) with its machine-readable
@@ -102,6 +112,8 @@ def raise_for_status_with_context(resp, graph_time: str = ""):
     """
     if resp.ok:
         return
+    if resp.status_code == 401:
+        raise ValueError(SIGN_IN_REQUIRED)
     try:
         body = resp.json()
     except ValueError:
@@ -1621,5 +1633,5 @@ if __name__ == "__main__":
 
     # https://github.com/jlowin/fastmcp/issues/855
     mcp.run(
-        transport="http", host="0.0.0.0", port=8000, path="/mcp", stateless_http=True
+        transport="http", host=BIND_HOST, port=8000, path="/mcp", stateless_http=True
     )
