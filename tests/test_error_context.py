@@ -6,8 +6,9 @@ class ErrorResponse:
     ok = False
     text = ""
 
-    def __init__(self, body):
+    def __init__(self, body, status_code=400):
         self._body = body
+        self.status_code = status_code
 
     def json(self):
         return self._body
@@ -51,6 +52,19 @@ def test_plain_detail_message_is_unchanged(server):
         server.raise_for_status_with_context(response, "g1")
 
     assert str(raised.value) == "Graph not found in graph_time g1"
+
+
+@pytest.mark.parametrize("detail", ["No authorization token provided", "Invalid or expired token"])
+def test_a_refused_sign_in_asks_the_user_to_sign_in(server, detail):
+    response = ErrorResponse({"detail": detail}, status_code=401)
+
+    with pytest.raises(ValueError) as raised:
+        server.raise_for_status_with_context(response, "g1")
+
+    assert str(raised.value) == (
+        "Not signed in to Topolograph. On topolograph.com, sign in to ask about your graphs. "
+        "On a self-hosted Topolograph, set a valid Topolograph API token for the agent."
+    )
 
 
 REFUSAL = "Events of this graph are not available: its watcher is not registered in Topolograph or is registered as Topology only"

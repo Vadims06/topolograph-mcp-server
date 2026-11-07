@@ -97,6 +97,13 @@ def _require_write_enabled():
         )
 
 
+# The agent passes this on to a user who is not signed in, instead of the bare API text.
+SIGN_IN_REQUIRED = (
+    "Not signed in to Topolograph. On topolograph.com, sign in to ask about your graphs. "
+    "On a self-hosted Topolograph, set a valid Topolograph API token for the agent."
+)
+
+
 def raise_for_status_with_context(resp, graph_time: str = ""):
     """Like resp.raise_for_status(), but on error transfers the backend's own
     message (the JSON 'detail' or 'error' field) with its machine-readable
@@ -105,6 +112,8 @@ def raise_for_status_with_context(resp, graph_time: str = ""):
     """
     if resp.ok:
         return
+    if resp.status_code == 401:
+        raise ValueError(SIGN_IN_REQUIRED)
     try:
         body = resp.json()
     except ValueError:
