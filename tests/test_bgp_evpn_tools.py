@@ -83,3 +83,23 @@ def test_get_shortest_path_takes_one_or_several_targets(server, sent_params, dst
     server.get_shortest_path.fn(graph_time="g1", src_node="r1", dst_node=dst_node)
 
     assert sent_params["url"] == f"{server.API_BASE}/graph/g1/path/r1/{path_tail}"
+
+
+@pytest.mark.parametrize("filter_type", ["all", "backuped_only", "non_backuped_only"])
+def test_get_network_by_graph_time_lists_networks_by_backup_status(server, sent_params, filter_type):
+    server.get_network_by_graph_time.fn(graph_time="g1", filter_type=filter_type)
+
+    assert sent_params["url"] == f"{server.API_BASE}/graph/g1/networks"
+    assert sent_params["params"] == {"filter_type": filter_type}
+
+
+def test_get_network_by_graph_time_without_filter_type_keeps_the_lookup(server, sent_params):
+    server.get_network_by_graph_time.fn(graph_time="g1", ip_address="10.0.0.5")
+
+    assert sent_params["url"] == f"{server.API_BASE}/network/g1"
+    assert sent_params["params"] == {"ip_address": "10.0.0.5"}
+
+
+def test_filter_type_is_refused_with_a_lookup(server, sent_params):
+    with pytest.raises(ValueError):
+        server.get_network_by_graph_time.fn(graph_time="g1", filter_type="all", node_id="r1")

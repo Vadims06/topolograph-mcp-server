@@ -77,7 +77,7 @@ The MCP server will be available at `http://localhost:8000/mcp` and automaticall
 
 - `get_all_graphs`: List available graphs with filtering options
 - `get_graph_by_time`: Fetch specific graph by time
-- `get_network_by_graph_time`: Query network information
+- `get_network_by_graph_time`: Query network information; `filter_type` (all, backuped_only, non_backuped_only) lists networks by backup status
 - `get_graph_status`: Check graph health and connectivity
 - `get_network_events`: Retrieve network up/down events
 - `get_adjacency_events`: Get node/host and link events

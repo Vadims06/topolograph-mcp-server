@@ -5,7 +5,7 @@ from fastmcp.server.dependencies import get_http_request
 from mcp.types import ToolAnnotations
 import requests
 from starlette.requests import Request
-from typing import Optional, List, Union
+from typing import Literal, Optional, List, Union
 import os
 import logging
 
@@ -240,6 +240,7 @@ def get_network_by_graph_time(
     network_w_digit_mask: Optional[str] = None,
     ip_address: Optional[str] = None,
     node_id: Optional[str] = None,
+    filter_type: Optional[Literal["all", "backuped_only", "non_backuped_only"]] = None,
 ):
     """
     Fetch network data by explicit graph_time.
@@ -258,6 +259,8 @@ def get_network_by_graph_time(
                                  Exact match only (no hostname or case-insensitive lookup here).
                                  - For OSPF: Use Router ID (e.g., "10.10.10.1")
                                  - For IS-IS: Use System ID (e.g., "1921.6800.1001")
+        filter_type (str, optional): all, backuped_only or non_backuped_only; lists the networks
+                                 of the graph by backup status, not with the three fields above
 
     Output fields:
         dict: A dictionary containing network information.
@@ -267,8 +270,15 @@ def get_network_by_graph_time(
         - get_network_by_graph_time("graph123", node_id="1921.6800.1001")  # All networks terminated by IS-IS System ID
         - get_network_by_graph_time("graph123", ip_address="192.168.1.5")  # Find network for IP 192.168.1.5
 
-    Equivalent to GET /network/{graph_time}.
+    Equivalent to GET /network/{graph_time}, or GET /graph/{graph_time}/networks with filter_type.
     """
+    if filter_type:
+        if network_w_digit_mask or ip_address or node_id:
+            raise ValueError("filter_type cannot be combined with network_w_digit_mask, ip_address or node_id")
+        resp = requests.get(
+            f"{API_BASE}/graph/{graph_time}/networks", headers=get_auth_headers(), params={"filter_type": filter_type})
+        raise_for_status_with_context(resp, graph_time)
+        return resp.json()
     url = f"{API_BASE}/network/{graph_time}"
     params = {}
     if network_w_digit_mask:
