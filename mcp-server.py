@@ -35,8 +35,10 @@ logging.basicConfig(level=logging.DEBUG)
 mcp = FastMCP(
     name="OSPF_Analyser",
     instructions="""
-              Use this MCP in order to get details about OSPF/IS-IS domain.
-              Tool provides informations about number of nodes and links are in OSPF/IS-IS domain""",
+              Read-only access to OSPF/IS-IS graphs, MPLS TE, BGP and VPN/EVPN data stored in Topolograph.
+              Answer routing-domain questions from these tools, not from model knowledge or shell commands.
+              Pick the data set first: an IGP graph_time from get_all_graphs, or a BGP epoch from list_bgp_graphs.
+              Quote the graph_time used and report empty results as unknown, not as absence.""",
     version="1.5.1",
 )
 
@@ -814,7 +816,8 @@ def get_shortest_path(
           MPLS-TE tunnels as forwarding shortcuts -- the path traffic actually
           takes given the tunnels currently in the graph, not the plain IGP
           path. Off by default (a signaled LSP does not redirect traffic on
-          its own without autoroute configured on the tunnel). One dst_node
+          its own without autoroute configured on the tunnel). Keep it off
+          unless the question is about MPLS TE autoroute. One dst_node
           only; the API rejects it with several.
         failed_edges (list[str], optional): edge_key values from get_edges; the
           path with these links down (both directions)
@@ -1359,7 +1362,8 @@ def compare_bgp_routes(
 
     Output fields:
         dict with key: items (list of BgpRouteDiffRow; diff_status is
-        added|withdrawn|changed, a changed row also carries diff_prev)
+        added|withdrawn|changed, a changed row also carries diff_prev).
+        There is no total: count the rows per diff_status and quote those counts.
 
     Equivalent to GET /bgp-graph/{bgp_graph_time}/routes/compare.
     """
