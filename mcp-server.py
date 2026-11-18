@@ -122,6 +122,8 @@ def raise_for_status_with_context(resp, graph_time: str = ""):
         body = {}
     message = (body.get("detail") or body.get("error") or resp.text or "request failed").strip().rstrip(".")
     hints = [f"{key}={body[key]}" for key in ("code", "action") if body.get(key)]
+    if resp.status_code == 429:
+        hints.append(f"retry_after_sec={resp.headers.get('Retry-After', 'unknown')}")
     if hints:
         message = f"{message} ({', '.join(hints)})"
     raise ValueError(f"{message} in graph_time {graph_time}" if graph_time else message)
@@ -920,9 +922,9 @@ def get_node_failure_reaction(graph_time: str, failed_nodes: list[str]) -> Netwo
     Output fields:
         NetworkReactionResponse: the same keys as get_edge_failure_reaction.
 
-    Equivalent to POST /network_reaction/node_failure/.
+    Equivalent to POST /network-reaction/node-failure/.
     """
-    url = f"{API_BASE}/network_reaction/node_failure/"
+    url = f"{API_BASE}/network-reaction/node-failure/"
     payload = {"graph_time": graph_time, "failed_nodes_list": failed_nodes}
 
     resp = requests.post(url, json=payload, headers=get_auth_headers())
@@ -957,12 +959,66 @@ def get_edge_failure_reaction(graph_time: str, failed_edges: list[list[str]]) ->
               each a list of {edge_key, from, to, value}, one per link direction, value in percent
             - disjointedNodes: list of node-name groups, if the graph split
 
-    Equivalent to POST /network_reaction/edge_failure/.
+    Equivalent to POST /network-reaction/edge-failure/.
     """
-    url = f"{API_BASE}/network_reaction/edge_failure/"
+    url = f"{API_BASE}/network-reaction/edge-failure/"
     payload = {"graph_time": graph_time, "failed_edges_list": failed_edges}
 
     resp = requests.post(url, json=payload, headers=get_auth_headers())
+    raise_for_status_with_context(resp, graph_time)
+    return resp.json()
+
+
+@mcp.tool(
+    tags={"read"},
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
+)
+def get_graph_analysis(graph_time: str, kind: str, at: Optional[str] = None) -> dict:
+    """
+    Whole-graph report: central routers, most loaded links, single points of failure and more.
+
+    Input fields:
+        graph_time (str): The graph time
+        kind (str): central-nodes, most-loaded, single-point-of-failure, fault-tolerant, heatmap,
+          unsym-paths, unidir-edges, backup-paths-in-ecmp, duplicated-terminated-networks or network-score
+        at (str, optional): ISO 8601 moment; a watcher graph is shown with the events up to it
+
+    Output fields:
+        dict with result, nodes and edges. The routers and links the report names are in nodes and
+        edges; backup-paths-in-ecmp and duplicated-terminated-networks list rows in result.rows;
+        network-score answers result.total, max, percentage and details.
+
+    Equivalent to GET /graph/{graph_time}/analyse/{kind}.
+    """
+    params = {"at": at} if at else {}
+    resp = requests.get(f"{API_BASE}/graph/{graph_time}/analyse/{kind}", params=params, headers=get_auth_headers())
+    raise_for_status_with_context(resp, graph_time)
+    return resp.json()
+
+
+@mcp.tool(
+    tags={"read"},
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
+)
+def get_path_tree(graph_time: str, node: str, direction: str = "out", at: Optional[str] = None) -> dict:
+    """
+    The shortest-path tree rooted at one router, equal-cost paths included.
+
+    Input fields:
+        graph_time (str): The graph time
+        node (str): Node name, hostname or IS-IS System ID
+        direction (str, optional): "out" for paths from the node (default), "in" for paths to it
+        at (str, optional): ISO 8601 moment; a watcher graph is shown with the events up to it
+
+    Output fields:
+        dict with result {root, direction}, nodes and edges (the links of the tree).
+
+    Equivalent to GET /graph/{graph_time}/path/{node}.
+    """
+    params = {"direction": direction}
+    if at:
+        params["at"] = at
+    resp = requests.get(f"{API_BASE}/graph/{graph_time}/path/{node}", params=params, headers=get_auth_headers())
     raise_for_status_with_context(resp, graph_time)
     return resp.json()
 

@@ -89,6 +89,10 @@ The MCP server will be available at `http://localhost:8000/mcp` and automaticall
 - `get_cspf_path`: Constrained-shortest-path (CSPF) feasibility check between two nodes; never mutates the graph; optional `level` (1 or 2) restricts an IS-IS path to one level
 - `get_node_failure_reaction`: Predict whole-network impact if one or more routers go down; simulation only
 - `get_edge_failure_reaction`: Predict whole-network impact if one or more links go down; simulation only
+- `get_graph_analysis`: Whole-graph reports (`kind`: central-nodes, most-loaded, single-point-of-failure, fault-tolerant, heatmap, unsym-paths, unidir-edges, backup-paths-in-ecmp, duplicated-terminated-networks, network-score); optional `at`
+- `get_path_tree`: The shortest-path tree from (`direction="out"`) or to (`"in"`) one node
+
+A rate-limited call (HTTP 429) fails with `retry_after_sec` in the message.
 
 ### BGP topology tools (require Topolograph >= 2.69)
 
