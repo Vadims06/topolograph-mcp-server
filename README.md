@@ -85,7 +85,7 @@ The MCP server will be available at `http://localhost:8000/mcp` and automaticall
 - `get_nodes`: Query diagram nodes (filter by role flags: ABR/ASBR, IS-IS overload/attached); `protocol="bgp"` with `vni`, `vrf` or `rt` lists the leaves (VTEPs) that carry that VNI, VRF or route target
 - `get_edges`: Query diagram edges (`include=["lsp_left_bw", "lsps", "is_te_link", "edge_key"]` for MPLS TE fields; `is_te_link=true|false` keeps only TE links or only the rest)
 - `get_lsps`: List/inspect MPLS TE LSP tunnels (filters: `status`, `via_node`, `via_edge`, `via_edge_key`)
-- `get_shortest_path`: Calculate the shortest path between two nodes (`with_lsps=true` to account for autoroute-enabled MPLS-TE tunnels); `dst_node` may be a list of targets, such as every VTEP of a VNI, answered from one SPF
+- `get_shortest_path`: Calculate the shortest path between two nodes (`with_lsps=true` to account for autoroute-enabled MPLS-TE tunnels); `dst_node` may be a list of targets, such as every VTEP of a VNI, answered from one SPF; `src_node` or `dst_node` with a "/" is an IP or network (a host is `x.x.x.x/32`); `failed_edges` (edge_key), `failed_nodes` or `changed_edge_costs` (edge_key -> cost) give the backup path, simulation only; a list `src_node` gives the union of paths between two sets of routers
 - `get_cspf_path`: Constrained-shortest-path (CSPF) feasibility check between two nodes; never mutates the graph; optional `level` (1 or 2) restricts an IS-IS path to one level
 - `get_node_failure_reaction`: Predict whole-network impact if one or more routers go down; simulation only
 - `get_edge_failure_reaction`: Predict whole-network impact if one or more links go down; simulation only

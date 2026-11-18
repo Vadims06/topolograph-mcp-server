@@ -774,9 +774,13 @@ def delete_lsp(graph_time: str, lsp_name: Optional[str] = None) -> dict:
 )
 def get_shortest_path(
     graph_time: str,
-    src_node: str,
+    src_node: Union[str, List[str]],
     dst_node: Union[str, List[str]],
     with_lsps: bool = False,
+    failed_edges: Optional[List[str]] = None,
+    failed_nodes: Optional[List[str]] = None,
+    changed_edge_costs: Optional[dict] = None,
+    at: Optional[str] = None,
 ) -> dict:
     """
     Calculate the shortest path from one node to one or several destinations.
@@ -792,7 +796,8 @@ def get_shortest_path(
 
     Input fields:
         graph_time (str): The graph time
-        src_node (str): Source node Router ID (e.g., "10.10.10.1")
+        src_node (str or list[str]): Source node Router ID (e.g., "10.10.10.1");
+          a list of sources answers the union of all source-target paths (underlay)
         dst_node (str or list[str]): One destination Router ID, or several
           (e.g., ["20.20.20.1", "30.30.30.1"])
         with_lsps (bool, optional): If true, account for autoroute-enabled
@@ -801,6 +806,18 @@ def get_shortest_path(
           path. Off by default (a signaled LSP does not redirect traffic on
           its own without autoroute configured on the tunnel). One dst_node
           only; the API rejects it with several.
+        failed_edges (list[str], optional): edge_key values from get_edges; the
+          path with these links down (both directions)
+        failed_nodes (list[str], optional): the path with these routers removed
+        changed_edge_costs (dict, optional): edge_key -> new cost of that
+          direction; keyed by edge_key, unlike resolve_route (igraph id)
+        at (str, optional): ISO 8601 moment; for the failure and underlay modes only
+        Routing of the request:
+          - src_node or dst_node containing "/" is an IP or network; a host is
+            given as x.x.x.x/32, since a bare IP is read as an OSPF Router ID
+          - failed_edges, failed_nodes or changed_edge_costs set: backup path,
+            one src and one dst, not with with_lsps
+          - src_node as a list: underlay; not with with_lsps or failures
 
     Output fields:
         One dst_node: dict with spt_path_nodes_name_as_ll_in_ll (list of node-name
@@ -809,10 +826,41 @@ def get_shortest_path(
           spt_path_nodes_name_as_ll_in_ll, unbackup_paths_nodes_name_as_ll_in_ll,
           or error when unresolved), plus the edges every target's path crosses.
 
-    Equivalent to GET /graph/{graph_time}/path/{src_node}/{dst_node}.
+    Equivalent to GET /graph/{graph_time}/path/{src_node}/{dst_node}, or with the rules above
+    GET /graph/{graph_time}/path/network, POST /graph/{graph_time}/analyse/spt-edge-failure
+    or POST /graph/{graph_time}/analyse/underlay.
     """
+    changed_costs = [{"edge_key": key, "cost": cost} for key, cost in (changed_edge_costs or {}).items()]
+    failures = {name: value for name, value in
+                {"failed_edges": failed_edges, "failed_nodes": failed_nodes, "changed_costs": changed_costs}.items()
+                if value}
+    several_sources = isinstance(src_node, list)
+    several_targets = isinstance(dst_node, list) and len(dst_node) > 1
+    is_network = isinstance(src_node, str) and isinstance(dst_node, str) and "/" in src_node + dst_node
+    if with_lsps and (failures or several_sources or is_network):
+        raise ValueError("with_lsps cannot be combined with failures, several sources or a network")
+    if failures and (several_sources or several_targets or is_network):
+        raise ValueError("failed_edges, failed_nodes and changed_edge_costs take one src_node and one dst_node, not a network")
+    if at and not (failures or several_sources):
+        raise ValueError("at applies to failures and several sources only")
+    base = f"{API_BASE}/graph/{graph_time}"
+    if several_sources or failures:
+        targets = dst_node if isinstance(dst_node, list) else [dst_node]
+        if several_sources:
+            url, body = f"{base}/analyse/underlay", {"from": src_node, "to": targets}
+        else:
+            url, body = f"{base}/analyse/spt-edge-failure", {"from": src_node, "to": targets[0], **failures}
+        resp = requests.post(url, json=body, params={"at": at} if at else {}, headers=get_auth_headers())
+        raise_for_status_with_context(resp, graph_time)
+        return resp.json()
+    if is_network:
+        resp = requests.get(
+            f"{base}/path/network", params={"src_ip_or_network": src_node, "dst_ip_or_network": dst_node},
+            headers=get_auth_headers())
+        raise_for_status_with_context(resp, graph_time)
+        return resp.json()
     dst = ",".join(dst_node) if isinstance(dst_node, list) else dst_node
-    url = f"{API_BASE}/graph/{graph_time}/path/{src_node}/{dst}"
+    url = f"{base}/path/{src_node}/{dst}"
     params: dict = {}
     if with_lsps:
         params["with_lsps"] = "true"
