@@ -867,6 +867,8 @@ def get_shortest_path(
         raise ValueError("with_lsps cannot be combined with failures, several sources, a network or at")
     if isinstance(dst_node, list) and not dst_node:
         raise ValueError("dst_node must not be an empty list")
+    if any("/" in name for name in (dst_node if isinstance(dst_node, list) else [])):
+        raise ValueError("a network goes in dst_node as a string, not in a list")
     if failures and (several_sources or several_targets or is_network):
         raise ValueError("failed_edges, failed_nodes and changed_edge_costs take one src_node and one dst_node, not a network")
     if at and is_network:
