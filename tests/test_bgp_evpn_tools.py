@@ -103,3 +103,40 @@ def test_get_network_by_graph_time_without_filter_type_keeps_the_lookup(server, 
 def test_filter_type_is_refused_with_a_lookup(server, sent_params):
     with pytest.raises(ValueError):
         server.get_network_by_graph_time.fn(graph_time="g1", filter_type="all", node_id="r1")
+
+
+AT = "2026-11-01T10:00:00Z"
+
+
+@pytest.mark.parametrize("dst_node, path_tail", [("r2", "r2"), (["r2", "r3"], "r2,r3")])
+def test_get_shortest_path_sends_at_in_the_plain_mode(server, sent_params, dst_node, path_tail):
+    server.get_shortest_path.fn(graph_time="g1", src_node="r1", dst_node=dst_node, at=AT)
+
+    assert sent_params["url"] == f"{server.API_BASE}/graph/g1/path/r1/{path_tail}"
+    assert sent_params["params"] == {"at": AT}
+
+
+@pytest.mark.parametrize("tool, path", [("get_edges", "edges"), ("get_nodes", "nodes")])
+def test_get_edges_and_get_nodes_send_at(server, sent_params, tool, path):
+    getattr(server, tool).fn(graph_time="g1", at=AT)
+
+    assert sent_params["url"] == f"{server.API_BASE}/graph/g1/{path}"
+    assert sent_params["params"] == {"page": 1, "per_page": 50, "at": AT}
+
+
+@pytest.mark.parametrize("kwargs, params", [
+    ({}, {"at": AT}),
+    ({"filter_type": "all"}, {"filter_type": "all", "at": AT}),
+])
+def test_get_network_by_graph_time_sends_at_to_the_networks_path(server, sent_params, kwargs, params):
+    server.get_network_by_graph_time.fn(graph_time="g1", at=AT, **kwargs)
+
+    assert sent_params["url"] == f"{server.API_BASE}/graph/g1/networks"
+    assert sent_params["params"] == params
+
+
+@pytest.mark.parametrize("lookup", [
+    {"network_w_digit_mask": "10.0.0.0/24"}, {"ip_address": "10.0.0.5"}, {"node_id": "r1"}])
+def test_at_is_refused_with_a_network_lookup(server, sent_params, lookup):
+    with pytest.raises(ValueError):
+        server.get_network_by_graph_time.fn(graph_time="g1", at=AT, **lookup)

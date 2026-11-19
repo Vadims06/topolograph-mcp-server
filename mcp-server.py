@@ -243,6 +243,7 @@ def get_network_by_graph_time(
     ip_address: Optional[str] = None,
     node_id: Optional[str] = None,
     filter_type: Optional[Literal["all", "backuped_only", "non_backuped_only"]] = None,
+    at: Optional[str] = None,
 ):
     """
     Fetch network data by explicit graph_time.
@@ -263,6 +264,7 @@ def get_network_by_graph_time(
                                  - For IS-IS: Use System ID (e.g., "1921.6800.1001")
         filter_type (str, optional): all, backuped_only or non_backuped_only; lists the networks
                                  of the graph by backup status, not with the three fields above
+        at (str, optional): ISO 8601 moment; state with watcher events applied up to it. Not with the three lookup fields
 
     Output fields:
         dict: A dictionary containing network information.
@@ -272,13 +274,15 @@ def get_network_by_graph_time(
         - get_network_by_graph_time("graph123", node_id="1921.6800.1001")  # All networks terminated by IS-IS System ID
         - get_network_by_graph_time("graph123", ip_address="192.168.1.5")  # Find network for IP 192.168.1.5
 
-    Equivalent to GET /network/{graph_time}, or GET /graph/{graph_time}/networks with filter_type.
+    Equivalent to GET /network/{graph_time}, or GET /graph/{graph_time}/networks with filter_type or at.
     """
-    if filter_type:
+    if filter_type or at:
         if network_w_digit_mask or ip_address or node_id:
-            raise ValueError("filter_type cannot be combined with network_w_digit_mask, ip_address or node_id")
-        resp = requests.get(
-            f"{API_BASE}/graph/{graph_time}/networks", headers=get_auth_headers(), params={"filter_type": filter_type})
+            raise ValueError("filter_type and at cannot be combined with network_w_digit_mask, ip_address or node_id")
+        params = {"filter_type": filter_type} if filter_type else {}
+        if at:
+            params["at"] = at
+        resp = requests.get(f"{API_BASE}/graph/{graph_time}/networks", headers=get_auth_headers(), params=params)
         raise_for_status_with_context(resp, graph_time)
         return resp.json()
     url = f"{API_BASE}/network/{graph_time}"
@@ -513,6 +517,7 @@ def get_nodes(
     rt: Optional[str] = None,
     page: int = 1,
     per_page: int = 50,
+    at: Optional[str] = None,
 ) -> dict:
     """
     Get a paginated list of nodes/routers from a graph.
@@ -543,6 +548,7 @@ def get_nodes(
         rt (str, optional): protocol="bgp" only -- keep the routers whose resolved RIB view carries this route target
         page (int): Page number, 1-indexed (default: 1)
         per_page (int): Items per page (default: 50)
+        at (str, optional): ISO 8601 moment; state with watcher events applied up to it
 
     Output fields:
         dict with keys:
@@ -569,6 +575,8 @@ def get_nodes(
     for name, value in (("vni", vni), ("vrf", vrf), ("rt", rt)):
         if value is not None:
             params[name] = value
+    if at:
+        params["at"] = at
 
     resp = requests.get(url, headers=get_auth_headers(), params=params)
     raise_for_status_with_context(resp, graph_time)
@@ -591,6 +599,7 @@ def get_edges(
     page: int = 1,
     per_page: int = 50,
     is_te_link: Optional[bool] = None,
+    at: Optional[str] = None,
 ) -> dict:
     """
     Get edges from a graph with optional filtering.
@@ -631,6 +640,7 @@ def get_edges(
         per_page (int): Items per page (default: 50)
         is_te_link (bool, optional): true keeps only TE links, false only links
           that are not; any other type is rejected with HTTP 400
+        at (str, optional): ISO 8601 moment; state with watcher events applied up to it
 
     Output fields:
         dict with keys:
@@ -655,6 +665,8 @@ def get_edges(
         params["include"] = ",".join(include)
     if is_te_link is not None:
         params["is_te_link"] = str(is_te_link).lower()
+    if at:
+        params["at"] = at
     if edge_query_params:
         params.update(edge_query_params)
 
@@ -824,7 +836,7 @@ def get_shortest_path(
         failed_nodes (list[str], optional): the path with these routers removed
         changed_edge_costs (dict, optional): edge_key -> new cost of that
           direction; keyed by edge_key, unlike resolve_route (igraph id)
-        at (str, optional): ISO 8601 moment; for the failure and underlay modes only
+        at (str, optional): ISO 8601 moment; state with watcher events applied up to it. Not with a network
         Routing of the request:
           - src_node or dst_node containing "/" is an IP or network; a host is
             given as x.x.x.x/32, since a bare IP is read as an OSPF Router ID
@@ -854,8 +866,8 @@ def get_shortest_path(
         raise ValueError("with_lsps cannot be combined with failures, several sources or a network")
     if failures and (several_sources or several_targets or is_network):
         raise ValueError("failed_edges, failed_nodes and changed_edge_costs take one src_node and one dst_node, not a network")
-    if at and not (failures or several_sources):
-        raise ValueError("at applies to failures and several sources only")
+    if at and is_network:
+        raise ValueError("at does not apply to a network path")
     base = f"{API_BASE}/graph/{graph_time}"
     if several_sources or failures:
         targets = dst_node if isinstance(dst_node, list) else [dst_node]
@@ -877,6 +889,8 @@ def get_shortest_path(
     params: dict = {}
     if with_lsps:
         params["with_lsps"] = "true"
+    if at:
+        params["at"] = at
 
     resp = requests.get(url, params=params, headers=get_auth_headers())
     raise_for_status_with_context(resp, graph_time)
