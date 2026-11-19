@@ -452,8 +452,9 @@ def get_events_timeline(
         chronological time waves (server-side), so you can narrate a network
         incident ("instability started at T from device X; a flapping burst
         from device Y; reconverged at T+n") without scanning hundreds of raw
-        events. Use this instead of get_adjacency_events when the user asks
-        "what happened", "summarise the incident", "how many bursts/waves".
+        events. Waves hold adjacency up/down only: metric (cost) changes are
+        not in them, so for "what happened" also call get_adjacency_events for
+        the same window and report its cost changes with the waves.
         Events exist ONLY for watcher-monitored graphs (is_monitored=true);
         first call get_all_graphs(is_monitored=true, latest_only=true).
         Returns wave summaries only (no nested event arrays): to get a wave's
