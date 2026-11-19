@@ -140,3 +140,21 @@ def test_get_network_by_graph_time_sends_at_to_the_networks_path(server, sent_pa
 def test_at_is_refused_with_a_network_lookup(server, sent_params, lookup):
     with pytest.raises(ValueError):
         server.get_network_by_graph_time.fn(graph_time="g1", at=AT, **lookup)
+
+@pytest.mark.parametrize("route", [
+    {"prefix": "100.14.210.0/24", "nexthop": "123.14.14.14", "as_path": ["65000", "65001"], "local_pref": 100, "med": 0,
+     "peer_ip": "123.14.14.14", "path_id": 0, "origin": "igp"},
+    {"prefix": "10.0.0.0/8", "nexthop": None, "as_path": [], "local_pref": None, "med": None,
+     "peer_ip": None, "path_id": None, "origin": None},
+])
+def test_bgp_routes_response_accepts_api_route_shapes(route):
+    """as_path is an array and nexthop, local_pref, med are nullable in the API."""
+    from pydantic import TypeAdapter
+    import schemas
+
+    page = {
+        "items": [route],
+        "pagination": {"page": 1, "per_page": 50, "total": 1, "total_pages": 1},
+        "sortable_columns": ["prefix"],
+    }
+    TypeAdapter(schemas.BgpRoutesResponse).validate_python(page)
