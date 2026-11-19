@@ -6,9 +6,10 @@ class ErrorResponse:
     ok = False
     text = ""
 
-    def __init__(self, body, status_code=400):
+    def __init__(self, body, status_code=400, headers=None):
         self._body = body
         self.status_code = status_code
+        self.headers = headers or {}
 
     def json(self):
         return self._body
@@ -65,6 +66,15 @@ def test_a_refused_sign_in_asks_the_user_to_sign_in(server, detail):
         "Not signed in to Topolograph. On topolograph.com, sign in to ask about your graphs. "
         "On a self-hosted Topolograph, set a valid Topolograph API token for the agent."
     )
+
+
+def test_a_429_names_the_seconds_to_wait(server):
+    response = ErrorResponse({"detail": "Too many analyses"}, status_code=429, headers={"Retry-After": "45"})
+
+    with pytest.raises(ValueError) as raised:
+        server.raise_for_status_with_context(response, "g1")
+
+    assert str(raised.value) == "Too many analyses (retry_after_sec=45) in graph_time g1"
 
 
 REFUSAL = "Events of this graph are not available: its watcher is not registered in Topolograph or is registered as Topology only"

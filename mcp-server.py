@@ -5,7 +5,7 @@ from fastmcp.server.dependencies import get_http_request
 from mcp.types import ToolAnnotations
 import requests
 from starlette.requests import Request
-from typing import Optional, List, Union
+from typing import Literal, Optional, List, Union
 import os
 import logging
 
@@ -35,8 +35,10 @@ logging.basicConfig(level=logging.DEBUG)
 mcp = FastMCP(
     name="OSPF_Analyser",
     instructions="""
-              Use this MCP in order to get details about OSPF/IS-IS domain.
-              Tool provides informations about number of nodes and links are in OSPF/IS-IS domain""",
+              Read-only access to OSPF/IS-IS graphs, MPLS TE, BGP and VPN/EVPN data stored in Topolograph.
+              Answer routing-domain questions from these tools, not from model knowledge or shell commands.
+              Pick the data set first: an IGP graph_time from get_all_graphs, or a BGP epoch from list_bgp_graphs.
+              Quote the graph_time used and report empty results as unknown, not as absence.""",
     version="1.5.1",
 )
 
@@ -122,6 +124,8 @@ def raise_for_status_with_context(resp, graph_time: str = ""):
         body = {}
     message = (body.get("detail") or body.get("error") or resp.text or "request failed").strip().rstrip(".")
     hints = [f"{key}={body[key]}" for key in ("code", "action") if body.get(key)]
+    if resp.status_code == 429:
+        hints.append(f"retry_after_sec={resp.headers.get('Retry-After', 'unknown')}")
     if hints:
         message = f"{message} ({', '.join(hints)})"
     raise ValueError(f"{message} in graph_time {graph_time}" if graph_time else message)
@@ -238,6 +242,10 @@ def get_network_by_graph_time(
     network_w_digit_mask: Optional[str] = None,
     ip_address: Optional[str] = None,
     node_id: Optional[str] = None,
+    filter_type: Optional[Literal["all", "backuped_only", "non_backuped_only"]] = None,
+    at: Optional[str] = None,
+    page: int = 1,
+    per_page: int = 50,
 ):
     """
     Fetch network data by explicit graph_time.
@@ -256,6 +264,10 @@ def get_network_by_graph_time(
                                  Exact match only (no hostname or case-insensitive lookup here).
                                  - For OSPF: Use Router ID (e.g., "10.10.10.1")
                                  - For IS-IS: Use System ID (e.g., "1921.6800.1001")
+        filter_type (str, optional): all, backuped_only or non_backuped_only; lists the networks
+                                 of the graph by backup status, not with the three fields above
+        at (str, optional): ISO 8601 moment; state with watcher events applied up to it. Not with the three lookup fields
+        page, per_page (int, optional): page of the list read with filter_type or at; check pagination.total
 
     Output fields:
         dict: A dictionary containing network information.
@@ -265,8 +277,18 @@ def get_network_by_graph_time(
         - get_network_by_graph_time("graph123", node_id="1921.6800.1001")  # All networks terminated by IS-IS System ID
         - get_network_by_graph_time("graph123", ip_address="192.168.1.5")  # Find network for IP 192.168.1.5
 
-    Equivalent to GET /network/{graph_time}.
+    Equivalent to GET /network/{graph_time}, or GET /graph/{graph_time}/networks with filter_type or at.
     """
+    if filter_type or at:
+        if network_w_digit_mask or ip_address or node_id:
+            raise ValueError("filter_type and at cannot be combined with network_w_digit_mask, ip_address or node_id")
+        params = {"filter_type": filter_type} if filter_type else {}
+        if at:
+            params["at"] = at
+        params.update(page=page, per_page=per_page)
+        resp = requests.get(f"{API_BASE}/graph/{graph_time}/networks", headers=get_auth_headers(), params=params)
+        raise_for_status_with_context(resp, graph_time)
+        return resp.json()
     url = f"{API_BASE}/network/{graph_time}"
     params = {}
     if network_w_digit_mask:
@@ -434,8 +456,9 @@ def get_events_timeline(
         chronological time waves (server-side), so you can narrate a network
         incident ("instability started at T from device X; a flapping burst
         from device Y; reconverged at T+n") without scanning hundreds of raw
-        events. Use this instead of get_adjacency_events when the user asks
-        "what happened", "summarise the incident", "how many bursts/waves".
+        events. Waves hold adjacency up/down only: metric (cost) changes are
+        not in them, so for "what happened" also call get_adjacency_events for
+        the same window and report its cost changes with the waves.
         Events exist ONLY for watcher-monitored graphs (is_monitored=true);
         first call get_all_graphs(is_monitored=true, latest_only=true).
         Returns wave summaries only (no nested event arrays): to get a wave's
@@ -499,6 +522,7 @@ def get_nodes(
     rt: Optional[str] = None,
     page: int = 1,
     per_page: int = 50,
+    at: Optional[str] = None,
 ) -> dict:
     """
     Get a paginated list of nodes/routers from a graph.
@@ -529,6 +553,7 @@ def get_nodes(
         rt (str, optional): protocol="bgp" only -- keep the routers whose resolved RIB view carries this route target
         page (int): Page number, 1-indexed (default: 1)
         per_page (int): Items per page (default: 50)
+        at (str, optional): ISO 8601 moment; state with watcher events applied up to it
 
     Output fields:
         dict with keys:
@@ -555,6 +580,8 @@ def get_nodes(
     for name, value in (("vni", vni), ("vrf", vrf), ("rt", rt)):
         if value is not None:
             params[name] = value
+    if at:
+        params["at"] = at
 
     resp = requests.get(url, headers=get_auth_headers(), params=params)
     raise_for_status_with_context(resp, graph_time)
@@ -577,6 +604,7 @@ def get_edges(
     page: int = 1,
     per_page: int = 50,
     is_te_link: Optional[bool] = None,
+    at: Optional[str] = None,
 ) -> dict:
     """
     Get edges from a graph with optional filtering.
@@ -617,6 +645,7 @@ def get_edges(
         per_page (int): Items per page (default: 50)
         is_te_link (bool, optional): true keeps only TE links, false only links
           that are not; any other type is rejected with HTTP 400
+        at (str, optional): ISO 8601 moment; state with watcher events applied up to it
 
     Output fields:
         dict with keys:
@@ -641,6 +670,8 @@ def get_edges(
         params["include"] = ",".join(include)
     if is_te_link is not None:
         params["is_te_link"] = str(is_te_link).lower()
+    if at:
+        params["at"] = at
     if edge_query_params:
         params.update(edge_query_params)
 
@@ -772,9 +803,13 @@ def delete_lsp(graph_time: str, lsp_name: Optional[str] = None) -> dict:
 )
 def get_shortest_path(
     graph_time: str,
-    src_node: str,
+    src_node: Union[str, List[str]],
     dst_node: Union[str, List[str]],
     with_lsps: bool = False,
+    failed_edges: Optional[List[str]] = None,
+    failed_nodes: Optional[List[str]] = None,
+    changed_edge_costs: Optional[dict] = None,
+    at: Optional[str] = None,
 ) -> dict:
     """
     Calculate the shortest path from one node to one or several destinations.
@@ -790,15 +825,29 @@ def get_shortest_path(
 
     Input fields:
         graph_time (str): The graph time
-        src_node (str): Source node Router ID (e.g., "10.10.10.1")
+        src_node (str or list[str]): Source node Router ID (e.g., "10.10.10.1");
+          a list of sources answers the union of all source-target paths (underlay)
         dst_node (str or list[str]): One destination Router ID, or several
           (e.g., ["20.20.20.1", "30.30.30.1"])
         with_lsps (bool, optional): If true, account for autoroute-enabled
           MPLS-TE tunnels as forwarding shortcuts -- the path traffic actually
           takes given the tunnels currently in the graph, not the plain IGP
           path. Off by default (a signaled LSP does not redirect traffic on
-          its own without autoroute configured on the tunnel). One dst_node
-          only; the API rejects it with several.
+          its own without autoroute configured on the tunnel). Keep it off
+          unless the question is about MPLS TE autoroute. One dst_node
+          only; the API rejects it with several. Not with at.
+        failed_edges (list[str], optional): edge_key values from get_edges; the
+          path with these links down (both directions)
+        failed_nodes (list[str], optional): the path with these routers removed
+        changed_edge_costs (dict, optional): edge_key -> new cost of that
+          direction; keyed by edge_key, unlike resolve_route (igraph id)
+        at (str, optional): ISO 8601 moment; state with watcher events applied up to it. Not with a network
+        Routing of the request:
+          - src_node or dst_node containing "/" is an IP or network; a host is
+            given as x.x.x.x/32, since a bare IP is read as an OSPF Router ID
+          - failed_edges, failed_nodes or changed_edge_costs set: backup path,
+            one src and one dst, not with with_lsps
+          - src_node as a list: underlay; not with with_lsps or failures
 
     Output fields:
         One dst_node: dict with spt_path_nodes_name_as_ll_in_ll (list of node-name
@@ -807,13 +856,50 @@ def get_shortest_path(
           spt_path_nodes_name_as_ll_in_ll, unbackup_paths_nodes_name_as_ll_in_ll,
           or error when unresolved), plus the edges every target's path crosses.
 
-    Equivalent to GET /graph/{graph_time}/path/{src_node}/{dst_node}.
+    Equivalent to GET /graph/{graph_time}/path/{src_node}/{dst_node}, or with the rules above
+    GET /graph/{graph_time}/path/network, POST /graph/{graph_time}/analyse/spt-edge-failure
+    or POST /graph/{graph_time}/analyse/underlay.
     """
+    changed_costs = [{"edge_key": key, "cost": cost} for key, cost in (changed_edge_costs or {}).items()]
+    failures = {name: value for name, value in
+                {"failed_edges": failed_edges, "failed_nodes": failed_nodes, "changed_costs": changed_costs}.items()
+                if value}
+    several_sources = isinstance(src_node, list)
+    several_targets = isinstance(dst_node, list) and len(dst_node) > 1
+    is_network = isinstance(src_node, str) and isinstance(dst_node, str) and "/" in src_node + dst_node
+    if with_lsps and (failures or several_sources or is_network or at):
+        raise ValueError("with_lsps cannot be combined with failures, several sources, a network or at")
+    if isinstance(dst_node, list) and not dst_node:
+        raise ValueError("dst_node must not be an empty list")
+    if any("/" in name for name in (dst_node if isinstance(dst_node, list) else [])):
+        raise ValueError("a network goes in dst_node as a string, not in a list")
+    if failures and (several_sources or several_targets or is_network):
+        raise ValueError("failed_edges, failed_nodes and changed_edge_costs take one src_node and one dst_node, not a network")
+    if at and is_network:
+        raise ValueError("at does not apply to a network path")
+    base = f"{API_BASE}/graph/{graph_time}"
+    if several_sources or failures:
+        targets = dst_node if isinstance(dst_node, list) else [dst_node]
+        if several_sources:
+            url, body = f"{base}/analyse/underlay", {"from": src_node, "to": targets}
+        else:
+            url, body = f"{base}/analyse/spt-edge-failure", {"from": src_node, "to": targets[0], **failures}
+        resp = requests.post(url, json=body, params={"at": at} if at else {}, headers=get_auth_headers())
+        raise_for_status_with_context(resp, graph_time)
+        return resp.json()
+    if is_network:
+        resp = requests.get(
+            f"{base}/path/network", params={"src_ip_or_network": src_node, "dst_ip_or_network": dst_node},
+            headers=get_auth_headers())
+        raise_for_status_with_context(resp, graph_time)
+        return resp.json()
     dst = ",".join(dst_node) if isinstance(dst_node, list) else dst_node
-    url = f"{API_BASE}/graph/{graph_time}/path/{src_node}/{dst}"
+    url = f"{base}/path/{src_node}/{dst}"
     params: dict = {}
     if with_lsps:
         params["with_lsps"] = "true"
+    if at:
+        params["at"] = at
 
     resp = requests.get(url, params=params, headers=get_auth_headers())
     raise_for_status_with_context(resp, graph_time)
@@ -920,9 +1006,9 @@ def get_node_failure_reaction(graph_time: str, failed_nodes: list[str]) -> Netwo
     Output fields:
         NetworkReactionResponse: the same keys as get_edge_failure_reaction.
 
-    Equivalent to POST /network_reaction/node_failure/.
+    Equivalent to POST /network-reaction/node-failure/.
     """
-    url = f"{API_BASE}/network_reaction/node_failure/"
+    url = f"{API_BASE}/network-reaction/node-failure/"
     payload = {"graph_time": graph_time, "failed_nodes_list": failed_nodes}
 
     resp = requests.post(url, json=payload, headers=get_auth_headers())
@@ -957,12 +1043,66 @@ def get_edge_failure_reaction(graph_time: str, failed_edges: list[list[str]]) ->
               each a list of {edge_key, from, to, value}, one per link direction, value in percent
             - disjointedNodes: list of node-name groups, if the graph split
 
-    Equivalent to POST /network_reaction/edge_failure/.
+    Equivalent to POST /network-reaction/edge-failure/.
     """
-    url = f"{API_BASE}/network_reaction/edge_failure/"
+    url = f"{API_BASE}/network-reaction/edge-failure/"
     payload = {"graph_time": graph_time, "failed_edges_list": failed_edges}
 
     resp = requests.post(url, json=payload, headers=get_auth_headers())
+    raise_for_status_with_context(resp, graph_time)
+    return resp.json()
+
+
+@mcp.tool(
+    tags={"read"},
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
+)
+def get_graph_analysis(graph_time: str, kind: str, at: Optional[str] = None) -> dict:
+    """
+    Whole-graph report: central routers, most loaded links, single points of failure and more.
+
+    Input fields:
+        graph_time (str): The graph time
+        kind (str): central-nodes, most-loaded, single-point-of-failure, fault-tolerant, heatmap,
+          unsym-paths, unidir-edges, backup-paths-in-ecmp, duplicated-terminated-networks or network-score
+        at (str, optional): ISO 8601 moment; a watcher graph is shown with the events up to it
+
+    Output fields:
+        dict with result, nodes and edges. The routers and links the report names are in nodes and
+        edges; backup-paths-in-ecmp and duplicated-terminated-networks list rows in result.rows;
+        network-score answers result.total, max, percentage and details.
+
+    Equivalent to GET /graph/{graph_time}/analyse/{kind}.
+    """
+    params = {"at": at} if at else {}
+    resp = requests.get(f"{API_BASE}/graph/{graph_time}/analyse/{kind}", params=params, headers=get_auth_headers())
+    raise_for_status_with_context(resp, graph_time)
+    return resp.json()
+
+
+@mcp.tool(
+    tags={"read"},
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
+)
+def get_path_tree(graph_time: str, node: str, direction: str = "out", at: Optional[str] = None) -> dict:
+    """
+    The shortest-path tree rooted at one router, equal-cost paths included.
+
+    Input fields:
+        graph_time (str): The graph time
+        node (str): Node name, hostname or IS-IS System ID
+        direction (str, optional): "out" for paths from the node (default), "in" for paths to it
+        at (str, optional): ISO 8601 moment; a watcher graph is shown with the events up to it
+
+    Output fields:
+        dict with result {root, direction}, nodes and edges (the links of the tree).
+
+    Equivalent to GET /graph/{graph_time}/path/{node}.
+    """
+    params = {"direction": direction}
+    if at:
+        params["at"] = at
+    resp = requests.get(f"{API_BASE}/graph/{graph_time}/path/{node}", params=params, headers=get_auth_headers())
     raise_for_status_with_context(resp, graph_time)
     return resp.json()
 
@@ -1245,7 +1385,8 @@ def compare_bgp_routes(
 
     Output fields:
         dict with key: items (list of BgpRouteDiffRow; diff_status is
-        added|withdrawn|changed, a changed row also carries diff_prev)
+        added|withdrawn|changed, a changed row also carries diff_prev).
+        There is no total: count the rows per diff_status and quote those counts.
 
     Equivalent to GET /bgp-graph/{bgp_graph_time}/routes/compare.
     """
