@@ -244,6 +244,8 @@ def get_network_by_graph_time(
     node_id: Optional[str] = None,
     filter_type: Optional[Literal["all", "backuped_only", "non_backuped_only"]] = None,
     at: Optional[str] = None,
+    page: int = 1,
+    per_page: int = 50,
 ):
     """
     Fetch network data by explicit graph_time.
@@ -265,6 +267,7 @@ def get_network_by_graph_time(
         filter_type (str, optional): all, backuped_only or non_backuped_only; lists the networks
                                  of the graph by backup status, not with the three fields above
         at (str, optional): ISO 8601 moment; state with watcher events applied up to it. Not with the three lookup fields
+        page, per_page (int, optional): page of the list read with filter_type or at; check pagination.total
 
     Output fields:
         dict: A dictionary containing network information.
@@ -282,6 +285,7 @@ def get_network_by_graph_time(
         params = {"filter_type": filter_type} if filter_type else {}
         if at:
             params["at"] = at
+        params.update(page=page, per_page=per_page)
         resp = requests.get(f"{API_BASE}/graph/{graph_time}/networks", headers=get_auth_headers(), params=params)
         raise_for_status_with_context(resp, graph_time)
         return resp.json()

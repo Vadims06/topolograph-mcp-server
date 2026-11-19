@@ -90,7 +90,7 @@ def test_get_network_by_graph_time_lists_networks_by_backup_status(server, sent_
     server.get_network_by_graph_time.fn(graph_time="g1", filter_type=filter_type)
 
     assert sent_params["url"] == f"{server.API_BASE}/graph/g1/networks"
-    assert sent_params["params"] == {"filter_type": filter_type}
+    assert sent_params["params"] == {"filter_type": filter_type, "page": 1, "per_page": 50}
 
 
 def test_get_network_by_graph_time_without_filter_type_keeps_the_lookup(server, sent_params):
@@ -125,8 +125,8 @@ def test_get_edges_and_get_nodes_send_at(server, sent_params, tool, path):
 
 
 @pytest.mark.parametrize("kwargs, params", [
-    ({}, {"at": AT}),
-    ({"filter_type": "all"}, {"filter_type": "all", "at": AT}),
+    ({}, {"at": AT, "page": 1, "per_page": 50}),
+    ({"filter_type": "all", "page": 3, "per_page": 100}, {"filter_type": "all", "at": AT, "page": 3, "per_page": 100}),
 ])
 def test_get_network_by_graph_time_sends_at_to_the_networks_path(server, sent_params, kwargs, params):
     server.get_network_by_graph_time.fn(graph_time="g1", at=AT, **kwargs)
