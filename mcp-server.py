@@ -831,7 +831,7 @@ def get_shortest_path(
           path. Off by default (a signaled LSP does not redirect traffic on
           its own without autoroute configured on the tunnel). Keep it off
           unless the question is about MPLS TE autoroute. One dst_node
-          only; the API rejects it with several.
+          only; the API rejects it with several. Not with at.
         failed_edges (list[str], optional): edge_key values from get_edges; the
           path with these links down (both directions)
         failed_nodes (list[str], optional): the path with these routers removed
@@ -863,8 +863,10 @@ def get_shortest_path(
     several_sources = isinstance(src_node, list)
     several_targets = isinstance(dst_node, list) and len(dst_node) > 1
     is_network = isinstance(src_node, str) and isinstance(dst_node, str) and "/" in src_node + dst_node
-    if with_lsps and (failures or several_sources or is_network):
-        raise ValueError("with_lsps cannot be combined with failures, several sources or a network")
+    if with_lsps and (failures or several_sources or is_network or at):
+        raise ValueError("with_lsps cannot be combined with failures, several sources, a network or at")
+    if isinstance(dst_node, list) and not dst_node:
+        raise ValueError("dst_node must not be an empty list")
     if failures and (several_sources or several_targets or is_network):
         raise ValueError("failed_edges, failed_nodes and changed_edge_costs take one src_node and one dst_node, not a network")
     if at and is_network:

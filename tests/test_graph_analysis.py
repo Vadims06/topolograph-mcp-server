@@ -38,6 +38,8 @@ def test_an_analysis_tool_calls_its_public_path(server, stub_response, monkeypat
     {"src_node": ["R1", "R2"], "dst_node": "R4", "changed_edge_costs": {"k1": 5}},
     {"src_node": "R1", "dst_node": "10.0.0.0/24", "failed_edges": ["k1"]},
     {"src_node": "10.0.0.1/32", "dst_node": "192.168.1.0/24", "at": "2026-11-01T10:00:00Z"},
+    {"src_node": "R1", "dst_node": "R4", "with_lsps": True, "at": "2026-11-01T10:00:00Z"},
+    {"src_node": "R1", "dst_node": [], "failed_nodes": ["R2"]},
 ])
 def test_a_shortest_path_mix_of_modes_is_refused(server, monkeypatch, kwargs):
     monkeypatch.setattr(server, "get_auth_headers", lambda: {})
