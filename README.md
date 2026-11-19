@@ -71,6 +71,22 @@ docker-compose up -d
 
 The MCP server will be available at `http://localhost:8000/mcp` and automatically connects to the Flask API.
 
+## Use with Claude Code and Codex CLI
+
+Create an API token in Topolograph, then export it and register the server (replace the URL with your MCP address):
+
+```bash
+export TOPOLOGRAPH_MCP_TOKEN=<token>
+claude mcp add --transport http -s user topolograph https://topolograph.com/mcp -H 'Authorization: Bearer ${TOPOLOGRAPH_MCP_TOKEN}'
+codex mcp add topolograph --url https://topolograph.com/mcp --bearer-token-env-var TOPOLOGRAPH_MCP_TOKEN
+```
+
+Optional: an Agent Skill that tells the agent when to use these tools and how to present the evidence. Codex in particular does not call the tools on routing questions without it.
+
+```bash
+npx skills add Vadims06/topolograph-mcp-server --skill topolograph
+```
+
 ## Available Tools
 
 ### Read tools (always available)
