@@ -1,5 +1,5 @@
 fastapi>=0.110,<1
-# >=2.11: RemoteAuthProvider (OAuth resource metadata); server-level exclude_tags (the read-only tool-hiding boundary) does
+# >=2.14.7: RemoteAuthProvider serving resource metadata at the /mcp-suffixed path (2.12 serves it at the root); server-level exclude_tags (the read-only tool-hiding boundary) does
 # not exist before 2.8.0. <3: v3 replaces it with mcp.disable().
-fastmcp>=2.11,<3
+fastmcp>=2.14.7,<3
 requests>=2.31,<3

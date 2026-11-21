@@ -88,3 +88,28 @@ def test_rejected_token_is_not_rechecked_immediately(server, userinfo_calls):
 
     assert results == [None, None, None]
     assert len(userinfo_calls) == 1
+
+
+def test_unknown_tokens_do_not_flood_userinfo(server, monkeypatch):
+    import threading
+    import time
+
+    running, peak, lock = [0], [0], threading.Lock()
+
+    def slow_get(url, headers, timeout):
+        with lock:
+            running[0] += 1
+            peak[0] = max(peak[0], running[0])
+        time.sleep(0.05)
+        with lock:
+            running[0] -= 1
+        return UserinfoResponse(401)
+
+    monkeypatch.setattr(server.requests, "get", slow_get)
+    verifier = server.TopolographTokenVerifier(PUBLIC_URL)
+
+    async def flood():
+        return await asyncio.gather(*(verifier.verify_token(f"sk-random-{i}") for i in range(20)))
+
+    assert asyncio.run(flood()) == [None] * 20
+    assert peak[0] == server.USERINFO_CONCURRENCY == 4
