@@ -57,3 +57,38 @@ jobs:
           else
             echo "skip :latest — newest stable tag is $top, this build is $TAG"
           fi
+
+  # Lists the tagged version in the official MCP Registry as com.topolograph/*.
+  # A manual rebuild re-runs an already listed version, so only tag pushes run it.
+  mcp-registry:
+    if: github.event_name == 'push' && !contains(github.ref_name, '-')
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.ref_name }}
+      PUBLISHER_VERSION: v1.8.11
+      PUBLISHER_SHA256: 99fbd857ae2277e5e4a4a2cddc7f4d3e64612c6f90950f44584c3539c9df854f
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tag matches server.json version
+        run: |
+          version=$(jq -r .version server.json)
+          if [ "v$version" != "$TAG" ]; then
+            echo "::error::tag $TAG but server.json version is $version"
+            exit 1
+          fi
+
+      - name: Install mcp-publisher
+        run: |
+          curl -fsSL -o mcp-publisher.tar.gz \
+            "https://github.com/modelcontextprotocol/registry/releases/download/${PUBLISHER_VERSION}/mcp-publisher_linux_amd64.tar.gz"
+          echo "${PUBLISHER_SHA256}  mcp-publisher.tar.gz" | sha256sum -c -
+          tar xzf mcp-publisher.tar.gz mcp-publisher
+
+      # The key's public half is served at topolograph.com/.well-known/mcp-registry-auth
+      - name: Publish
+        env:
+          MCP_REGISTRY_PRIVATE_KEY: ${{ secrets.MCP_REGISTRY_PRIVATE_KEY }}
+        run: |
+          ./mcp-publisher login http --domain topolograph.com --private-key "$MCP_REGISTRY_PRIVATE_KEY"
+          ./mcp-publisher publish

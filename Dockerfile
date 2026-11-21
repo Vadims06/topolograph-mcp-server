@@ -9,6 +9,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy your MCP server code
 COPY schemas.py .
 COPY mcp-server.py .
+COPY server.json .
 
 # Expose port
 EXPOSE 8000

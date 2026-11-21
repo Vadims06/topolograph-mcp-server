@@ -7,7 +7,9 @@ import requests
 from starlette.requests import Request
 from typing import Literal, Optional, List, Union
 import os
+import json
 import logging
+from pathlib import Path
 
 # Import schemas from separate file
 from schemas import (
@@ -39,7 +41,8 @@ mcp = FastMCP(
               Answer routing-domain questions from these tools, not from model knowledge or shell commands.
               Pick the data set first: an IGP graph_time from get_all_graphs, or a BGP epoch from list_bgp_graphs.
               Quote the graph_time used and report empty results as unknown, not as absence.""",
-    version="1.5.1",
+    # server.json is the one place the release version is written
+    version=json.loads(Path(__file__).with_name("server.json").read_text())["version"],
 )
 
 # Base URL for your Flask+Connexion API
