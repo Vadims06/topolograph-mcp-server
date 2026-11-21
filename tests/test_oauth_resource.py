@@ -113,3 +113,20 @@ def test_unknown_tokens_do_not_flood_userinfo(server, monkeypatch):
 
     assert asyncio.run(flood()) == [None] * 20
     assert peak[0] == server.USERINFO_CONCURRENCY == 4
+
+
+def test_a_slow_rejection_is_still_cached(server, monkeypatch):
+    clock = [1000.0]
+    calls = []
+
+    def slow_get(url, headers, timeout):
+        calls.append(url)
+        clock[0] += 10  # longer than the rejection cache lifetime
+        return UserinfoResponse(401)
+
+    monkeypatch.setattr(server.requests, "get", slow_get)
+    monkeypatch.setattr(server.time, "monotonic", lambda: clock[0])
+    verifier = server.TopolographTokenVerifier(PUBLIC_URL)
+
+    assert [asyncio.run(verifier.verify_token("sk-dead")) for _ in range(2)] == [None, None]
+    assert len(calls) == 1

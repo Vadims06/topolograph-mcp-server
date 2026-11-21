@@ -79,6 +79,8 @@ class TopolographTokenVerifier(TokenVerifier):
         async with self.userinfo_slots:
             response = await asyncio.to_thread(
                 requests.get, self.userinfo_url, headers={"Authorization": f"Bearer {token}"}, timeout=10)
+        # The wait for a slot and the call can outlast a cache lifetime
+        now = time.monotonic()
         if response.status_code != 200:
             self.verified_until.pop(key, None)
             _remember(self.rejected_until, key, now, REJECTED_CACHE_TTL_SEC)
