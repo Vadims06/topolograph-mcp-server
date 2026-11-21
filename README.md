@@ -73,6 +73,15 @@ The MCP server will be available at `http://localhost:8000/mcp` and automaticall
 
 ## Use with Claude Code and Codex CLI
 
+Sign in with the browser instead of a token (the server must run with `TOPOLOGRAPH_PUBLIC_URL`, e.g. `https://topolograph.com`, which is both the OAuth authorization server and the API host). The CLI opens the Topolograph sign-in and receives a read-only token that Access > API tokens lists and revokes:
+
+```bash
+claude mcp add --transport http -s user topolograph https://topolograph.com/mcp
+codex mcp add topolograph --url https://topolograph.com/mcp && codex mcp login topolograph
+```
+
+With `TOPOLOGRAPH_PUBLIC_URL` set, a request without a valid token gets `401` with a `WWW-Authenticate` challenge pointing to `/.well-known/oauth-protected-resource/mcp`; an API token in `Authorization: Bearer` keeps working. Unset, the server forwards the caller's token as before. The reverse proxy must route `/.well-known/oauth-protected-resource/mcp` to this server next to `/mcp`.
+
 Create an API token in Topolograph, then export it and register the server (replace the URL with your MCP address):
 
 ```bash

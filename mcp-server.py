@@ -1,13 +1,16 @@
 # server.py
 from fastmcp import FastMCP
-from fastmcp.server.auth import AuthProvider
+from fastmcp.server.auth import AccessToken, AuthProvider, RemoteAuthProvider, TokenVerifier
 from fastmcp.server.dependencies import get_http_request
 from mcp.types import ToolAnnotations
 import requests
 from starlette.requests import Request
 from typing import Literal, Optional, List, Union
+import asyncio
+import hashlib
 import os
 import logging
+import time
 
 # Import schemas from separate file
 from schemas import (
@@ -32,6 +35,50 @@ from schemas import (
 logging.basicConfig(level=logging.DEBUG)
 
 
+# Site origin that is both the authorization server and the API host, e.g. https://topolograph.com.
+# Unset (self-hosted, CI) leaves the server without HTTP-layer auth: a caller's API token is
+# forwarded as before and the API alone decides.
+PUBLIC_URL = os.getenv("TOPOLOGRAPH_PUBLIC_URL", "").strip().rstrip("/")
+
+# Revocation reaches the MCP server this late; one userinfo call per request would load the API.
+TOKEN_CACHE_TTL_SEC = 30
+
+
+class TopolographTokenVerifier(TokenVerifier):
+    """Rejects a dead token with 401 here, so the client re-authorizes instead of seeing a tool error."""
+
+    def __init__(self, public_url: str):
+        super().__init__(base_url=public_url)
+        self.userinfo_url = f"{public_url}/oauth/agent/userinfo"
+        self.verified_until: dict[str, float] = {}
+
+    async def verify_token(self, token: str) -> AccessToken | None:
+        key = hashlib.sha256(token.encode()).hexdigest()
+        now = time.monotonic()
+        if self.verified_until.get(key, 0) > now:
+            return AccessToken(token=token, client_id="topolograph", scopes=[])
+        response = await asyncio.to_thread(
+            requests.get, self.userinfo_url, headers={"Authorization": f"Bearer {token}"}, timeout=10)
+        if response.status_code != 200:
+            self.verified_until.pop(key, None)
+            return None
+        self.verified_until = {k: v for k, v in self.verified_until.items() if v > now}
+        self.verified_until[key] = now + TOKEN_CACHE_TTL_SEC
+        return AccessToken(token=token, client_id="topolograph", scopes=[])
+
+
+def create_auth_provider(public_url: str) -> AuthProvider | None:
+    """Advertises Topolograph as the authorization server so a CLI can sign in through the browser."""
+    if not public_url:
+        return None
+    return RemoteAuthProvider(
+        token_verifier=TopolographTokenVerifier(public_url),
+        authorization_servers=[public_url],
+        base_url=public_url,
+        resource_name="Topolograph MCP",
+    )
+
+
 mcp = FastMCP(
     name="OSPF_Analyser",
     instructions="""
@@ -40,6 +87,7 @@ mcp = FastMCP(
               Pick the data set first: an IGP graph_time from get_all_graphs, or a BGP epoch from list_bgp_graphs.
               Quote the graph_time used and report empty results as unknown, not as absence.""",
     version="1.5.1",
+    auth=create_auth_provider(PUBLIC_URL),
 )
 
 # Base URL for your Flask+Connexion API
