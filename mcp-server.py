@@ -42,6 +42,9 @@ PUBLIC_URL = os.getenv("TOPOLOGRAPH_PUBLIC_URL", "").strip().rstrip("/")
 
 # Revocation reaches the MCP server this late; one userinfo call per request would load the API.
 TOKEN_CACHE_TTL_SEC = 30
+# A flood of random bearers must not become a flood of userinfo calls.
+REJECTED_CACHE_TTL_SEC = 5
+REJECTED_CACHE_MAX = 10000
 
 
 class TopolographTokenVerifier(TokenVerifier):
@@ -51,16 +54,22 @@ class TopolographTokenVerifier(TokenVerifier):
         super().__init__(base_url=public_url)
         self.userinfo_url = f"{public_url}/oauth/agent/userinfo"
         self.verified_until: dict[str, float] = {}
+        self.rejected_until: dict[str, float] = {}
 
     async def verify_token(self, token: str) -> AccessToken | None:
         key = hashlib.sha256(token.encode()).hexdigest()
         now = time.monotonic()
+        if self.rejected_until.get(key, 0) > now:
+            return None
         if self.verified_until.get(key, 0) > now:
             return AccessToken(token=token, client_id="topolograph", scopes=[])
         response = await asyncio.to_thread(
             requests.get, self.userinfo_url, headers={"Authorization": f"Bearer {token}"}, timeout=10)
         if response.status_code != 200:
             self.verified_until.pop(key, None)
+            self.rejected_until = {k: v for k, v in self.rejected_until.items() if v > now}
+            if len(self.rejected_until) < REJECTED_CACHE_MAX:
+                self.rejected_until[key] = now + REJECTED_CACHE_TTL_SEC
             return None
         self.verified_until = {k: v for k, v in self.verified_until.items() if v > now}
         self.verified_until[key] = now + TOKEN_CACHE_TTL_SEC

@@ -79,3 +79,12 @@ def test_sent_api_token_is_forwarded_unchanged(server, monkeypatch):
     monkeypatch.setattr(server, "get_http_request", lambda: Request())
 
     assert server.get_auth_headers()["Authorization"] == "Bearer sk-abc"
+
+
+def test_rejected_token_is_not_rechecked_immediately(server, userinfo_calls):
+    verifier = server.TopolographTokenVerifier(PUBLIC_URL)
+
+    results = [asyncio.run(verifier.verify_token("sk-dead")) for _ in range(3)]
+
+    assert results == [None, None, None]
+    assert len(userinfo_calls) == 1
