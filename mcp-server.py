@@ -5,7 +5,8 @@ from fastmcp.server.dependencies import get_http_request
 from mcp.types import ToolAnnotations
 import requests
 from starlette.requests import Request
-from typing import Literal, Optional, List, Union
+from pydantic import Field
+from typing import Annotated, Literal, Optional, List, Union
 import asyncio
 import hashlib
 import os
@@ -217,16 +218,32 @@ def require_watcher_graph(graph_time: str):
         )
 
 
+# Descriptions shared by several tools, shown in each tool's input schema.
+GraphTime = Annotated[str, Field(description="Graph name with date, hours and host count, e.g. 01Sep2025_12h44m36s_8_hosts; the newest comes from get_all_graphs")]
+GraphTimeOrWatcher = Annotated[str, Field(description="Graph name, or the name of your OSPF/IS-IS watcher (Enterprise) to read its newest snapshot with events up to now; the answer then names that snapshot in graph_time")]
+BgpGraphTime = Annotated[str, Field(description="The BGP graph epoch to query (see list_bgp_graphs)")]
+Page = Annotated[int, Field(description="Page number, 1-indexed")]
+PerPage = Annotated[int, Field(description="Items per page")]
+At = Annotated[Optional[str], Field(description="ISO 8601 moment; state with watcher events applied up to it")]
+StartTime = Annotated[Optional[str], Field(description="Start time in ISO 8601 format, e.g. 2025-06-30T20:00:00Z")]
+EndTime = Annotated[Optional[str], Field(description="End time in ISO 8601 format; defaults to current time")]
+LastMinutes = Annotated[Optional[int], Field(description="Minutes to look back from now; overrides start_time and end_time")]
+Prefix = Annotated[Optional[str], Field(description="CIDR is an exact match; an address returns every covering route, longest prefix first")]
+Vni = Annotated[Optional[int], Field(description="EVPN L2VNI")]
+Vrf = Annotated[Optional[str], Field(description="VRF name, resolved to its RDs across the bound epoch's own routers")]
+RouteTarget = Annotated[Optional[str], Field(description="Any of the route's route targets")]
+RouteDistinguisher = Annotated[Optional[str], Field(description="Route distinguisher")]
+Mac = Annotated[Optional[str], Field(description="EVPN MAC address, exact match")]
+
+
 @mcp.tool(
     tags={"read"},
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
 )
-def get_graph_by_time(graph_time: str):
+def get_graph_by_time(graph_time: GraphTime):
     """
     Fetch a graph by graph name from Topolograph API.
     graph name is a string with included date and hours and number of hosts, i.e 01Sep2025_12h44m36s_8_hosts
-
-    graph_time (str, optional): The graph time to filter by. Use latest if it's not specified.
     """
     url = f"{API_BASE}/graph/{graph_time}"
     resp = requests.get(url, headers=get_auth_headers())
@@ -238,13 +255,13 @@ def get_graph_by_time(graph_time: str):
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
 )
 def get_all_graphs(
-    protocol: Optional[str] = None,
-    area: Optional[str] = None,
-    is_monitored: Optional[bool] = None,
-    name: Optional[str] = None,
-    latest_only: bool = False,
-    page: int = 1,
-    per_page: int = 50,
+    protocol: Annotated[Optional[str], Field(description="Filter graphs by protocol (ospf, ospfv3, isis, yaml)")] = None,
+    area: Annotated[Optional[str], Field(description="Filter graphs by area number")] = None,
+    is_monitored: Annotated[Optional[bool], Field(description="true = only watcher-received graphs, false = only manually uploaded")] = None,
+    name: Annotated[Optional[str], Field(description="Case-insensitive substring over graph_time or watcher_name, e.g. \"before_maintenance\"")] = None,
+    latest_only: Annotated[bool, Field(description="Return only the single newest graph among those matching the filters")] = False,
+    page: Page = 1,
+    per_page: PerPage = 50,
 ) -> dict:
     """
     Description:
@@ -255,15 +272,6 @@ def get_all_graphs(
             Only monitored graphs have events; use is_monitored=true when answering
             change/event questions.
           - is_live: the source watcher is currently sending heartbeats.
-
-    Input fields:
-        protocol (str, optional): Filter graphs by protocol (ospf, ospfv3, isis, yaml)
-        area (str, optional): Filter graphs by area number
-        is_monitored (bool, optional): true = only watcher-received graphs, false = only manually uploaded
-        name (str, optional): Case-insensitive substring over graph_time or watcher_name (e.g. "before_maintenance")
-        latest_only (bool, optional): Return only the single newest graph among those matching the filters
-        page (int): Page number, 1-indexed (default: 1)
-        per_page (int): Items per page (default: 50)
 
     Output fields:
         dict with keys:
@@ -294,7 +302,7 @@ def get_all_graphs(
     tags={"write"},
     annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=True),
 )
-def upload_graph(graph: dict):
+def upload_graph(graph: Annotated[dict, Field(description="Graph to upload, sent as the JSON body of POST /graph")]):
     """
     Upload a new graph into Topolograph API.
     Equivalent to POST /graph with JSON body.
@@ -311,14 +319,14 @@ def upload_graph(graph: dict):
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
 )
 def get_network_by_graph_time(
-    graph_time: str,
-    network_w_digit_mask: Optional[str] = None,
-    ip_address: Optional[str] = None,
-    node_id: Optional[str] = None,
-    filter_type: Optional[Literal["all", "backuped_only", "non_backuped_only"]] = None,
-    at: Optional[str] = None,
-    page: int = 1,
-    per_page: int = 50,
+    graph_time: GraphTime,
+    network_w_digit_mask: Annotated[Optional[str], Field(description="Network with mask, e.g. 10.0.0.0/24; finds all devices which terminate it")] = None,
+    ip_address: Annotated[Optional[str], Field(description="IP address to find which network it belongs to")] = None,
+    node_id: Annotated[Optional[str], Field(description="Exact node identifier (no hostname or case-insensitive lookup); finds all networks terminated by the node. OSPF: Router ID, e.g. \"10.10.10.1\"; IS-IS: System ID, e.g. \"1921.6800.1001\"")] = None,
+    filter_type: Annotated[Optional[Literal['all', 'backuped_only', 'non_backuped_only']], Field(description="Lists the networks of the graph by backup status; not with network_w_digit_mask, ip_address or node_id")] = None,
+    at: Annotated[Optional[str], Field(description="ISO 8601 moment; state with watcher events applied up to it. Not with network_w_digit_mask, ip_address or node_id")] = None,
+    page: Annotated[int, Field(description="Page number, 1-indexed, of the list read with filter_type or at; check pagination.total")] = 1,
+    per_page: Annotated[int, Field(description="Items per page of the list read with filter_type or at")] = 50,
 ):
     """
     Fetch network data by explicit graph_time.
@@ -328,19 +336,6 @@ def get_network_by_graph_time(
         Universal tool that works with both OSPF and IS-IS protocols.
         Use 'node_id' to find all networks terminated by a specific node.
         Use 'ip_address' to find which network a specific IP belongs to.
-
-    Input fields:
-        graph_time (str): REQUIRED - The specific graph time to query, use the most latest from get_all_graphs to get graph_time.
-        network_w_digit_mask (str, optional): Network with mask (e.g., 10.0.0.0/24). Helpful when needed to find all devices which terminate the network
-        ip_address (str, optional): IP address to find which network it belongs to
-        node_id (str, optional): Universal node identifier to find all networks terminated by this node.
-                                 Exact match only (no hostname or case-insensitive lookup here).
-                                 - For OSPF: Use Router ID (e.g., "10.10.10.1")
-                                 - For IS-IS: Use System ID (e.g., "1921.6800.1001")
-        filter_type (str, optional): all, backuped_only or non_backuped_only; lists the networks
-                                 of the graph by backup status, not with the three fields above
-        at (str, optional): ISO 8601 moment; state with watcher events applied up to it. Not with the three lookup fields
-        page, per_page (int, optional): page of the list read with filter_type or at; check pagination.total
 
     Output fields:
         dict: A dictionary containing network information.
@@ -380,16 +375,13 @@ def get_network_by_graph_time(
     tags={"read"},
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
 )
-def get_graph_status(graph_time: str) -> dict:
+def get_graph_status(graph_time: GraphTime) -> dict:
     """
     Get the status of a graph based on its health.
 
     Description:
         This tool returns the status of a graph including connectivity information
         and various event counts.
-
-    Input fields:
-        graph_time (str): Name of graph = The graph time to get status for.
 
     Output fields:
         dict: A dictionary containing status information with keys:
@@ -416,10 +408,10 @@ def get_graph_status(graph_time: str) -> dict:
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
 )
 def get_network_events(
-    graph_time: str,
-    start_time: Optional[str] = None,
-    end_time: Optional[str] = None,
-    last_minutes: Optional[int] = None,
+    graph_time: GraphTime,
+    start_time: StartTime = None,
+    end_time: EndTime = None,
+    last_minutes: LastMinutes = None,
 ) -> NetworkEventsResponse:
     """
     Description:
@@ -430,12 +422,6 @@ def get_network_events(
         first call get_all_graphs(is_monitored=true, latest_only=true) to pick a
         monitored graph_time.
         Treat any cost change to or from -1 as down (падение) or up (восстановление) event.
-
-    Input fields:
-        graph_time (str): Name of graph = The graph time to filter events.
-        start_time (str, optional): Start time to filter events in ISO format (e.g., 2025-06-30T20:00:00Z)
-        end_time (str, optional): End time to filter events in ISO format. Defaults to current time if not provided.
-        last_minutes (int, optional): Number of minutes to look back from current time for events. If provided, overrides start_time and end_time parameters.
 
     Output fields:
         NetworkEventsResponse: A dictionary containing network event information with keys:
@@ -465,10 +451,10 @@ def get_network_events(
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
 )
 def get_adjacency_events(
-    graph_time: str,
-    start_time: Optional[str] = None,
-    end_time: Optional[str] = None,
-    last_minutes: Optional[int] = None,
+    graph_time: GraphTime,
+    start_time: StartTime = None,
+    end_time: EndTime = None,
+    last_minutes: LastMinutes = None,
 ) -> AdjacencyEventsResponse:
     """
     Description:
@@ -479,12 +465,6 @@ def get_adjacency_events(
         first call get_all_graphs(is_monitored=true, latest_only=true) to pick a
         monitored graph_time.
         Treat any cost change to or from -1 as down (падение) or up (восстановление) event.
-
-    Input fields:
-        graph_time (str): Name of graph = The graph time to filter events.
-        start_time (str, optional): Start time to filter events in ISO format (e.g., 2025-06-30T20:00:00Z)
-        end_time (str, optional): End time to filter events in ISO format. Defaults to current time if not provided.
-        last_minutes (int, optional): Number of minutes to look back from current time for events. If provided, overrides start_time and end_time parameters.
 
     Output fields:
         AdjacencyEventsResponse: A dictionary containing adjacency event information with keys:
@@ -516,12 +496,12 @@ def get_adjacency_events(
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
 )
 def get_events_timeline(
-    graph_time: str,
-    start_time: Optional[str] = None,
-    end_time: Optional[str] = None,
-    last_minutes: Optional[int] = None,
-    page: int = 1,
-    per_page: int = 20,
+    graph_time: GraphTime,
+    start_time: StartTime = None,
+    end_time: EndTime = None,
+    last_minutes: LastMinutes = None,
+    page: Annotated[int, Field(description="Page number, 1-indexed, over the waves list")] = 1,
+    per_page: Annotated[int, Field(description="Number of waves per page")] = 20,
 ) -> EventsTimelineResponse:
     """
     Description:
@@ -537,14 +517,6 @@ def get_events_timeline(
         Returns wave summaries only (no nested event arrays): to get a wave's
         individual events, call get_adjacency_events with that wave's
         start_ts/end_ts.
-
-    Input fields:
-        graph_time (str): The graph time to filter events.
-        start_time (str, optional): Start time in ISO format (e.g., 2025-06-30T20:00:00Z)
-        end_time (str, optional): End time in ISO format. Defaults to current time if not provided.
-        last_minutes (int, optional): Look back this many minutes; overrides start_time/end_time.
-        page (int, optional): Page number (1-indexed) over the waves list.
-        per_page (int, optional): Number of waves per page.
 
     Output fields:
         EventsTimelineResponse: A dictionary with keys:
@@ -581,21 +553,21 @@ def get_events_timeline(
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
 )
 def get_nodes(
-    graph_time: str,
-    protocol: Optional[str] = None,
-    watcher: Optional[bool] = None,
-    area: Optional[str] = None,
-    abr: Optional[bool] = None,
-    asbr: Optional[bool] = None,
-    overload: Optional[bool] = None,
-    attached: Optional[bool] = None,
-    maxmetric: Optional[bool] = None,
-    vni: Optional[int] = None,
-    vrf: Optional[str] = None,
-    rt: Optional[str] = None,
-    page: int = 1,
-    per_page: int = 50,
-    at: Optional[str] = None,
+    graph_time: GraphTimeOrWatcher,
+    protocol: Annotated[Optional[str], Field(description="Only return if graph matches protocol (ospf, ospfv3, isis, yaml, bgp)")] = None,
+    watcher: Annotated[Optional[bool], Field(description="true for watcher-uploaded graphs, false for manually parsed")] = None,
+    area: Annotated[Optional[str], Field(description="Only return if graph contains this area, e.g. \"0\", \"0.0.0.1\", \"49.0001\"")] = None,
+    abr: Annotated[Optional[bool], Field(description="OSPF role filter: true returns only Area Border Routers (false: only non-ABRs)")] = None,
+    asbr: Annotated[Optional[bool], Field(description="OSPF role filter: true returns only AS Boundary Routers (false: only non-ASBRs)")] = None,
+    overload: Annotated[Optional[bool], Field(description="IS-IS filter: true returns only routers with the overload (OL) bit set")] = None,
+    attached: Annotated[Optional[bool], Field(description="IS-IS filter: true returns only routers with the attached (ATT) bit set")] = None,
+    maxmetric: Annotated[Optional[bool], Field(description="OSPF filter: true returns only routers in max-metric (RFC 3137 stub router) state")] = None,
+    vni: Annotated[Optional[int], Field(description="protocol=\"bgp\" only: keep the routers that are a VTEP for this L2VNI")] = None,
+    vrf: Annotated[Optional[str], Field(description="protocol=\"bgp\" only: keep the routers that are a VTEP for this VRF's L3VNI")] = None,
+    rt: Annotated[Optional[str], Field(description="protocol=\"bgp\" only: keep the routers whose resolved RIB view carries this route target")] = None,
+    page: Page = 1,
+    per_page: PerPage = 50,
+    at: At = None,
 ) -> dict:
     """
     Get a paginated list of nodes/routers from a graph.
@@ -610,23 +582,6 @@ def get_nodes(
         protocol="bgp" answers "which leaves carry VNI/VRF X" (vni/vrf/rt) and
         "which routers are BGP speakers" -- rows then carry can_build_path
         instead of the IGP node fields above.
-
-    Input fields:
-        graph_time (str): The graph time identifier, or the name of your OSPF/IS-IS watcher (Enterprise) to read its newest snapshot with events up to now; the answer then names that snapshot in graph_time
-        protocol (str, optional): Filter: only return if graph matches protocol (ospf, ospfv3, isis, yaml, bgp)
-        watcher (bool, optional): Filter: true for watcher-uploaded graphs, false for manually parsed
-        area (str, optional): Filter: only return if graph contains this area (e.g. "0", "0.0.0.1", "49.0001")
-        abr (bool, optional): OSPF role filter — true returns only Area Border Routers (false: only non-ABRs)
-        asbr (bool, optional): OSPF role filter — true returns only AS Boundary Routers (false: only non-ASBRs)
-        overload (bool, optional): IS-IS filter — true returns only routers with the overload (OL) bit set
-        attached (bool, optional): IS-IS filter — true returns only routers with the attached (ATT) bit set
-        maxmetric (bool, optional): OSPF filter — true returns only routers in max-metric (RFC 3137 stub router) state
-        vni (int, optional): protocol="bgp" only -- keep the routers that are a VTEP for this L2VNI
-        vrf (str, optional): protocol="bgp" only -- keep the routers that are a VTEP for this VRF's L3VNI
-        rt (str, optional): protocol="bgp" only -- keep the routers whose resolved RIB view carries this route target
-        page (int): Page number, 1-indexed (default: 1)
-        per_page (int): Items per page (default: 50)
-        at (str, optional): ISO 8601 moment; state with watcher events applied up to it
 
     Output fields:
         dict with keys:
@@ -666,18 +621,18 @@ def get_nodes(
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
 )
 def get_edges(
-    graph_time: str,
-    src_node: Optional[str] = None,
-    dst_node: Optional[str] = None,
-    protocol: Optional[str] = None,
-    watcher: Optional[bool] = None,
-    area: Optional[str] = None,
-    edge_query_params: Optional[dict] = None,
-    include: Optional[List[str]] = None,
-    page: int = 1,
-    per_page: int = 50,
-    is_te_link: Optional[bool] = None,
-    at: Optional[str] = None,
+    graph_time: GraphTimeOrWatcher,
+    src_node: Annotated[Optional[str], Field(description="Filter edges by source node name")] = None,
+    dst_node: Annotated[Optional[str], Field(description="Filter edges by destination node name")] = None,
+    protocol: Annotated[Optional[str], Field(description="Graph-level filter (ospf, ospfv3, isis, yaml)")] = None,
+    watcher: Annotated[Optional[bool], Field(description="Graph-level filter: watcher-uploaded vs manually parsed")] = None,
+    area: Annotated[Optional[str], Field(description="Graph-level filter by area")] = None,
+    edge_query_params: Annotated[Optional[dict], Field(description="Edge attribute filters as flat key=value pairs, exact match or range operators, e.g. {\"weight\": 10, \"temetric__gt\": 100}")] = None,
+    include: Annotated[Optional[List[str]], Field(description="Extra MPLS-TE fields, hidden by default: \"lsp_left_bw\" (TE bandwidth left on each edge after placed LSP tunnels), \"lsps\" (LSP tunnels traversing the edge), \"is_te_link\" (true when the link advertises at least one optional TE value; a zero counts, interface and neighbor addresses do not), \"edge_key\" (stable identity, needed for get_lsps(via_edge_key=) on parallel/ECMP edges)")] = None,
+    page: Page = 1,
+    per_page: PerPage = 50,
+    is_te_link: Annotated[Optional[bool], Field(description="true keeps only TE links, false only links that are not; any other type is rejected with HTTP 400")] = None,
+    at: At = None,
 ) -> dict:
     """
     Get edges from a graph with optional filtering.
@@ -696,29 +651,6 @@ def get_edges(
           max_rsrv_link_bw, unreserved_bw_0..7
         IS-IS: isis_level=1 or isis_level=2
         User-defined attributes (e.g. isp_provider=verizon) are also supported.
-
-    Input fields:
-        graph_time (str): The graph time identifier, or the name of your OSPF/IS-IS watcher (Enterprise) to read its newest snapshot with events up to now; the answer then names that snapshot in graph_time
-        src_node (str, optional): Filter edges by source node name
-        dst_node (str, optional): Filter edges by destination node name
-        protocol (str, optional): Graph-level filter (ospf, ospfv3, isis, yaml)
-        watcher (bool, optional): Graph-level filter: watcher-uploaded vs manually parsed
-        area (str, optional): Graph-level filter by area
-        edge_query_params (dict, optional): Edge attribute filters (flat key=value pairs)
-        include (list[str], optional): Extra MPLS-TE fields, hidden by default:
-          "lsp_left_bw" (how much TE bandwidth is left on each edge, after
-          accounting for placed LSP tunnels -- lsp_left_bw_0..7 plus a
-          human-readable lsp_reserved_bw/lsp_left_bw/lsp_bandwidth_usage pair
-          at the default priority-7 pool), "lsps" (which LSP tunnels traverse
-          this edge), "is_te_link" (true when the link advertises at least one
-          optional TE value: TE metric, admin group, max/reservable/unreserved
-          bandwidth or SRLG; a zero counts, interface and neighbor addresses do
-          not), "edge_key" (stable identity, needed for get_lsps(via_edge_key=) on parallel/ECMP edges)
-        page (int): Page number, 1-indexed (default: 1)
-        per_page (int): Items per page (default: 50)
-        is_te_link (bool, optional): true keeps only TE links, false only links
-          that are not; any other type is rejected with HTTP 400
-        at (str, optional): ISO 8601 moment; state with watcher events applied up to it
 
     Output fields:
         dict with keys:
@@ -758,13 +690,13 @@ def get_edges(
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
 )
 def get_lsps(
-    graph_time: str,
-    lsp_name: Optional[str] = None,
-    status: Optional[str] = None,
-    via_node: Optional[str] = None,
-    via_edge: Optional[str] = None,
-    via_edge_key: Optional[str] = None,
-    include_path: bool = False,
+    graph_time: GraphTime,
+    lsp_name: Annotated[Optional[str], Field(description="Get one tunnel by name instead of listing all")] = None,
+    status: Annotated[Optional[str], Field(description="\"placed\" or \"unplaced\": keep only paths matching")] = None,
+    via_node: Annotated[Optional[str], Field(description="Keep only paths whose CSPF-computed path visits this node (e.g. \"which tunnels cross router X\", pre-maintenance impact check)")] = None,
+    via_edge: Annotated[Optional[str], Field(description="\"srcNode,dstNode\": keep only paths traversing this hop")] = None,
+    via_edge_key: Annotated[Optional[str], Field(description="Exact stable edge_key (from get_edges(include=[\"edge_key\"])); disambiguates parallel/ECMP edges that via_edge alone cannot")] = None,
+    include_path: Annotated[bool, Field(description="Also return each path's expanded node-name path in the list form")] = False,
 ) -> dict:
     """
     List MPLS TE LSP tunnels, or get one tunnel by name.
@@ -791,17 +723,6 @@ def get_lsps(
         includes each path's expanded node-name path; the list form omits it
         by default (include_path=True to get it there too, since it can be
         large across many tunnels).
-
-    Input fields:
-        graph_time (str): The graph time identifier
-        lsp_name (str, optional): Get one tunnel by name instead of listing all
-        status (str, optional): "placed" or "unplaced" -- keep only paths matching
-        via_node (str, optional): Keep only paths whose CSPF-computed path visits this node
-          (e.g. "which tunnels cross router X", pre-maintenance impact check)
-        via_edge (str, optional): "srcNode,dstNode" -- keep only paths traversing this hop
-        via_edge_key (str, optional): Exact stable edge_key (from get_edges(include=["edge_key"]))
-          -- disambiguates parallel/ECMP edges that via_edge alone cannot
-        include_path (bool, optional): Also return each path's expanded node-name path in the list form
 
     Equivalent to GET /graph/{graph_time}/lsps[/{lsp_name}].
     """
@@ -833,7 +754,10 @@ def get_lsps(
     tags={"write"},
     annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=True),
 )
-def add_lsp(graph_time: str, lsp: dict) -> dict:
+def add_lsp(
+    graph_time: GraphTime,
+    lsp: Annotated[dict, Field(description="LSP tunnel definition, sent as the JSON body of POST /graph/{graph_time}/lsps")],
+) -> dict:
     """Add an MPLS TE LSP tunnel to a graph."""
     _require_write_enabled()
     url = f"{API_BASE}/graph/{graph_time}/lsps"
@@ -846,7 +770,11 @@ def add_lsp(graph_time: str, lsp: dict) -> dict:
     tags={"write", "destructive"},
     annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=True),
 )
-def update_lsp(graph_time: str, lsp_name: str, changes: dict) -> dict:
+def update_lsp(
+    graph_time: GraphTime,
+    lsp_name: Annotated[str, Field(description="Name of the tunnel to update")],
+    changes: Annotated[dict, Field(description="Fields to change, sent as the JSON body of the PATCH request; set a new name to rename the tunnel")],
+) -> dict:
     """Update or rename an MPLS TE LSP tunnel."""
     _require_write_enabled()
     url = f"{API_BASE}/graph/{graph_time}/lsps/{lsp_name}"
@@ -859,7 +787,10 @@ def update_lsp(graph_time: str, lsp_name: str, changes: dict) -> dict:
     tags={"write", "destructive"},
     annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=True),
 )
-def delete_lsp(graph_time: str, lsp_name: Optional[str] = None) -> dict:
+def delete_lsp(
+    graph_time: GraphTime,
+    lsp_name: Annotated[Optional[str], Field(description="Name of the tunnel to delete; omit to delete all tunnels of the graph")] = None,
+) -> dict:
     """Delete one MPLS TE LSP tunnel, or all tunnels when name is omitted."""
     _require_write_enabled()
     url = f"{API_BASE}/graph/{graph_time}/lsps"
@@ -875,14 +806,14 @@ def delete_lsp(graph_time: str, lsp_name: Optional[str] = None) -> dict:
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
 )
 def get_shortest_path(
-    graph_time: str,
-    src_node: Union[str, List[str]],
-    dst_node: Union[str, List[str]],
-    with_lsps: bool = False,
-    failed_edges: Optional[List[str]] = None,
-    failed_nodes: Optional[List[str]] = None,
-    changed_edge_costs: Optional[dict] = None,
-    at: Optional[str] = None,
+    graph_time: GraphTime,
+    src_node: Annotated[Union[str, List[str]], Field(description="Source Router ID, e.g. \"10.10.10.1\"; a list of sources answers the union of all source-target paths (underlay)")],
+    dst_node: Annotated[Union[str, List[str]], Field(description="One destination Router ID, or several, e.g. [\"20.20.20.1\", \"30.30.30.1\"]")],
+    with_lsps: Annotated[bool, Field(description="If true, account for autoroute-enabled MPLS-TE tunnels as forwarding shortcuts: the path traffic actually takes given the tunnels currently in the graph. Off by default (a signaled LSP does not redirect traffic without autoroute on the tunnel); keep it off unless the question is about MPLS TE autoroute. One dst_node only; the API rejects it with several. Not with at")] = False,
+    failed_edges: Annotated[Optional[List[str]], Field(description="edge_key values from get_edges; the path with these links down (both directions)")] = None,
+    failed_nodes: Annotated[Optional[List[str]], Field(description="The path with these routers removed")] = None,
+    changed_edge_costs: Annotated[Optional[dict], Field(description="edge_key -> new cost of that direction; keyed by edge_key, unlike resolve_route (igraph id)")] = None,
+    at: Annotated[Optional[str], Field(description="ISO 8601 moment; state with watcher events applied up to it. Not with a network")] = None,
 ) -> dict:
     """
     Calculate the shortest path from one node to one or several destinations.
@@ -896,31 +827,12 @@ def get_shortest_path(
         (MST-style, for colouring several VTEPs' underlay at once); with_lsps
         takes one destination only.
 
-    Input fields:
-        graph_time (str): The graph time
-        src_node (str or list[str]): Source node Router ID (e.g., "10.10.10.1");
-          a list of sources answers the union of all source-target paths (underlay)
-        dst_node (str or list[str]): One destination Router ID, or several
-          (e.g., ["20.20.20.1", "30.30.30.1"])
-        with_lsps (bool, optional): If true, account for autoroute-enabled
-          MPLS-TE tunnels as forwarding shortcuts -- the path traffic actually
-          takes given the tunnels currently in the graph, not the plain IGP
-          path. Off by default (a signaled LSP does not redirect traffic on
-          its own without autoroute configured on the tunnel). Keep it off
-          unless the question is about MPLS TE autoroute. One dst_node
-          only; the API rejects it with several. Not with at.
-        failed_edges (list[str], optional): edge_key values from get_edges; the
-          path with these links down (both directions)
-        failed_nodes (list[str], optional): the path with these routers removed
-        changed_edge_costs (dict, optional): edge_key -> new cost of that
-          direction; keyed by edge_key, unlike resolve_route (igraph id)
-        at (str, optional): ISO 8601 moment; state with watcher events applied up to it. Not with a network
-        Routing of the request:
-          - src_node or dst_node containing "/" is an IP or network; a host is
-            given as x.x.x.x/32, since a bare IP is read as an OSPF Router ID
-          - failed_edges, failed_nodes or changed_edge_costs set: backup path,
-            one src and one dst, not with with_lsps
-          - src_node as a list: underlay; not with with_lsps or failures
+    Routing of the request:
+      - src_node or dst_node containing "/" is an IP or network; a host is
+        given as x.x.x.x/32, since a bare IP is read as an OSPF Router ID
+      - failed_edges, failed_nodes or changed_edge_costs set: backup path,
+        one src and one dst, not with with_lsps
+      - src_node as a list: underlay; not with with_lsps or failures
 
     Output fields:
         One dst_node: dict with spt_path_nodes_name_as_ll_in_ll (list of node-name
@@ -984,17 +896,17 @@ def get_shortest_path(
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
 )
 def get_cspf_path(
-    graph_time: str,
-    node_a: str,
-    node_b: str,
-    bandwidth: Optional[str] = None,
-    metric_type: str = "igp",
-    admin_exclude_any: Optional[List[str]] = None,
-    admin_include_any: Optional[List[str]] = None,
-    admin_include_all: Optional[List[str]] = None,
-    srlg_exclude: Optional[List[int]] = None,
-    setup_priority: int = 7,
-    level: Optional[int] = None,
+    graph_time: GraphTime,
+    node_a: Annotated[str, Field(description="Source node name")],
+    node_b: Annotated[str, Field(description="Destination node name")],
+    bandwidth: Annotated[Optional[str], Field(description="Required bandwidth, e.g. \"2G\", \"500M\", or a raw bps number")] = None,
+    metric_type: Annotated[str, Field(description="\"igp\" (default) or \"te\"")] = 'igp',
+    admin_exclude_any: Annotated[Optional[List[str]], Field(description="Admin groups to exclude. On an IS-IS graph a group is the number of a bit of the link's admin group mask (bit 0 is the least significant; \"2\" avoids mask 0x00000004); on a YAML diagram it is an affinity name")] = None,
+    admin_include_any: Annotated[Optional[List[str]], Field(description="Admin groups, at least one required")] = None,
+    admin_include_all: Annotated[Optional[List[str]], Field(description="Admin groups, all required")] = None,
+    srlg_exclude: Annotated[Optional[List[int]], Field(description="SRLG ids to exclude")] = None,
+    setup_priority: Annotated[int, Field(description="RSVP-TE setup priority (0-7, default 7); selects which advertised Unreserved Bandwidth pool the bandwidth check runs against")] = 7,
+    level: Annotated[Optional[int], Field(description="IS-IS level, 1 or 2. Restricts the path to links that advertised their TE data at that level; omit for no level restriction. No effect on a non-IS-IS graph. Fails with isis_level_calculation_unavailable on a graph stored before per-level IS-IS data existed (re-upload the LSDB), and with isis_level_unavailable_for_yaml_diagram on a YAML diagram")] = None,
 ) -> CspfPathResponse:
     """
     Constrained-shortest-path (CSPF) query between two nodes.
@@ -1006,26 +918,6 @@ def get_cspf_path(
         the plain one. No tunnel is created or persisted; this never mutates
         the graph. Use this before calling add_lsp when you want to check
         feasibility first.
-
-    Input fields:
-        graph_time (str): The graph time identifier
-        node_a (str): Source node name
-        node_b (str): Destination node name
-        bandwidth (str, optional): Required bandwidth, e.g. "2G", "500M", or a raw bps number
-        metric_type (str, optional): "igp" (default) or "te"
-        admin_exclude_any (list[str], optional): Admin groups to exclude. On an IS-IS graph a
-          group is the number of a bit of the link's admin group mask (bit 0 is the least
-          significant; "2" avoids mask 0x00000004); on a YAML diagram it is an affinity name
-        admin_include_any (list[str], optional): Admin groups, at least one required
-        admin_include_all (list[str], optional): Admin groups, all required
-        srlg_exclude (list[int], optional): SRLG ids to exclude
-        setup_priority (int, optional): RSVP-TE setup priority (0-7, default 7) -- selects
-          which advertised Unreserved Bandwidth pool the bandwidth check runs against
-        level (int, optional): IS-IS level, 1 or 2. Restricts the path to links that advertised
-          their TE data at that level; omit for no level restriction. No effect on a non-IS-IS
-          graph. Fails with isis_level_calculation_unavailable on a graph stored before per-level
-          IS-IS data existed (re-upload the LSDB), and with isis_level_unavailable_for_yaml_diagram
-          on a YAML diagram
 
     Output fields:
         CspfPathResponse: dict with keys:
@@ -1063,7 +955,10 @@ def get_cspf_path(
     tags={"read"},
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
 )
-def get_node_failure_reaction(graph_time: str, failed_nodes: list[str]) -> NetworkReactionResponse:
+def get_node_failure_reaction(
+    graph_time: GraphTime,
+    failed_nodes: Annotated[list[str], Field(description="Node names of the failed routers, e.g. [\"10.10.10.2\"]")],
+) -> NetworkReactionResponse:
     """
     Predict the whole-network impact if one or more routers go down.
 
@@ -1071,10 +966,6 @@ def get_node_failure_reaction(graph_time: str, failed_nodes: list[str]) -> Netwo
         Whether the graph stays connected and which links see more or less
         traffic once these routers fail. A simulation only: nothing is
         changed in the graph.
-
-    Input fields:
-        graph_time (str): The graph time
-        failed_nodes (list[str]): Node names of the failed routers, e.g. ["10.10.10.2"]
 
     Output fields:
         NetworkReactionResponse: the same keys as get_edge_failure_reaction.
@@ -1093,7 +984,10 @@ def get_node_failure_reaction(graph_time: str, failed_nodes: list[str]) -> Netwo
     tags={"read"},
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
 )
-def get_edge_failure_reaction(graph_time: str, failed_edges: list[list[str]]) -> NetworkReactionResponse:
+def get_edge_failure_reaction(
+    graph_time: GraphTime,
+    failed_edges: Annotated[list[list[str]], Field(description="Pairs of node names identifying each failed link, e.g. [[\"10.10.10.1\", \"10.10.10.2\"]]")],
+) -> NetworkReactionResponse:
     """
     Predict the whole-network impact if one or more links go down.
 
@@ -1103,11 +997,6 @@ def get_edge_failure_reaction(graph_time: str, failed_edges: list[list[str]]) ->
         rerouting pattern (which links see more/less traffic). This is a
         simulation only: it does not fail any link or otherwise mutate the
         graph.
-
-    Input fields:
-        graph_time (str): The graph time
-        failed_edges (list[list[str]]): Pairs of node names identifying each failed link,
-          e.g. [["10.10.10.1", "10.10.10.2"]]
 
     Output fields:
         NetworkReactionResponse: dict with keys:
@@ -1130,15 +1019,13 @@ def get_edge_failure_reaction(graph_time: str, failed_edges: list[list[str]]) ->
     tags={"read"},
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
 )
-def get_graph_analysis(graph_time: str, kind: str, at: Optional[str] = None) -> dict:
+def get_graph_analysis(
+    graph_time: GraphTime,
+    kind: Annotated[str, Field(description="central-nodes, most-loaded, single-point-of-failure, fault-tolerant, heatmap, unsym-paths, unidir-edges, backup-paths-in-ecmp, duplicated-terminated-networks or network-score")],
+    at: At = None,
+) -> dict:
     """
     Whole-graph report: central routers, most loaded links, single points of failure and more.
-
-    Input fields:
-        graph_time (str): The graph time
-        kind (str): central-nodes, most-loaded, single-point-of-failure, fault-tolerant, heatmap,
-          unsym-paths, unidir-edges, backup-paths-in-ecmp, duplicated-terminated-networks or network-score
-        at (str, optional): ISO 8601 moment; a watcher graph is shown with the events up to it
 
     Output fields:
         dict with result, nodes and edges. The routers and links the report names are in nodes and
@@ -1157,15 +1044,14 @@ def get_graph_analysis(graph_time: str, kind: str, at: Optional[str] = None) -> 
     tags={"read"},
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
 )
-def get_path_tree(graph_time: str, node: str, direction: str = "out", at: Optional[str] = None) -> dict:
+def get_path_tree(
+    graph_time: GraphTime,
+    node: Annotated[str, Field(description="Node name, hostname or IS-IS System ID")],
+    direction: Annotated[str, Field(description="\"out\" for paths from the node (default), \"in\" for paths to it")] = 'out',
+    at: At = None,
+) -> dict:
     """
     The shortest-path tree rooted at one router, equal-cost paths included.
-
-    Input fields:
-        graph_time (str): The graph time
-        node (str): Node name, hostname or IS-IS System ID
-        direction (str, optional): "out" for paths from the node (default), "in" for paths to it
-        at (str, optional): ISO 8601 moment; a watcher graph is shown with the events up to it
 
     Output fields:
         dict with result {root, direction}, nodes and edges (the links of the tree).
@@ -1184,13 +1070,9 @@ def get_path_tree(graph_time: str, node: str, direction: str = "out", at: Option
     tags={"read"},
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
 )
-def list_bgp_graphs(page: int = 1, per_page: int = 50) -> dict:
+def list_bgp_graphs(page: Page = 1, per_page: PerPage = 50) -> dict:
     """
     List BGP graph epochs (one per BMP collection cycle), newest first.
-
-    Input fields:
-        page (int): Page number, 1-indexed (default: 1)
-        per_page (int): Items per page (default: 50)
 
     Equivalent to GET /bgp-graphs.
     """
@@ -1204,7 +1086,7 @@ def list_bgp_graphs(page: int = 1, per_page: int = 50) -> dict:
     tags={"read"},
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
 )
-def get_bgp_graph(bgp_graph_time: str) -> BgpGraph:
+def get_bgp_graph(bgp_graph_time: BgpGraphTime) -> BgpGraph:
     """
     Fetch one BGP graph epoch by bgp_graph_time.
 
@@ -1221,21 +1103,14 @@ def get_bgp_graph(bgp_graph_time: str) -> BgpGraph:
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
 )
 def list_bgp_nodes(
-    bgp_graph_time: str,
-    role: Optional[str] = None,
-    asn: Optional[str] = None,
-    page: int = 1,
-    per_page: int = 50,
+    bgp_graph_time: BgpGraphTime,
+    role: Annotated[Optional[str], Field(description="Filter by node role")] = None,
+    asn: Annotated[Optional[str], Field(description="Filter by autonomous system number")] = None,
+    page: Page = 1,
+    per_page: PerPage = 50,
 ) -> BgpNodesResponse:
     """
     List the BGP speakers of a BGP graph epoch.
-
-    Input fields:
-        bgp_graph_time (str): The BGP graph epoch to query
-        role (str, optional): Filter by node role
-        asn (str, optional): Filter by autonomous system number
-        page (int): Page number, 1-indexed (default: 1)
-        per_page (int): Items per page (default: 50)
 
     Output fields:
         dict with keys: items (list of BgpNode, each with rib_view, can_build_path,
@@ -1259,22 +1134,14 @@ def list_bgp_nodes(
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
 )
 def list_bgp_sessions(
-    bgp_graph_time: str,
-    igp_relation: Optional[str] = None,
-    bgp_session_type: Optional[str] = None,
-    page: int = 1,
-    per_page: int = 50,
+    bgp_graph_time: BgpGraphTime,
+    igp_relation: Annotated[Optional[str], Field(description="Filter by relation to the IGP topology (intra-domain, inter-domain, external)")] = None,
+    bgp_session_type: Annotated[Optional[str], Field(description="Filter by session type (ibgp, ebgp)")] = None,
+    page: Page = 1,
+    per_page: PerPage = 50,
 ) -> BgpSessionsResponse:
     """
     List BGP peering sessions of a BGP graph epoch.
-
-    Input fields:
-        bgp_graph_time (str): The BGP graph epoch to query
-        igp_relation (str, optional): Filter by relation to the IGP topology
-          (intra-domain, inter-domain, external)
-        bgp_session_type (str, optional): Filter by session type (ibgp, ebgp)
-        page (int): Page number, 1-indexed (default: 1)
-        per_page (int): Items per page (default: 50)
 
     Output fields:
         dict with keys: items (list of BgpSession), pagination
@@ -1297,34 +1164,34 @@ def list_bgp_sessions(
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
 )
 def search_bgp_routes(
-    bgp_graph_time: str,
-    router_id: Optional[str] = None,
-    prefix: Optional[str] = None,
-    vrf: Optional[str] = None,
-    rd: Optional[str] = None,
-    rt: Optional[str] = None,
-    afi: Optional[int] = None,
-    safi: Optional[int] = None,
-    bmp_rib: Optional[str] = None,
-    evidence: Optional[str] = None,
-    as_path_contains: Optional[str] = None,
-    origin: Optional[str] = None,
-    local_pref: Optional[int] = None,
-    med: Optional[int] = None,
-    community: Optional[str] = None,
-    large_community: Optional[str] = None,
-    extended_community: Optional[str] = None,
-    label: Optional[int] = None,
-    originator_id: Optional[str] = None,
-    peer_ip: Optional[str] = None,
-    nexthop: Optional[str] = None,
-    bmp_source: Optional[str] = None,
-    table_filters: Optional[str] = None,
-    ribs: Optional[str] = None,
-    sort: Optional[str] = None,
-    order: str = "asc",
-    page: int = 1,
-    per_page: int = 50,
+    bgp_graph_time: BgpGraphTime,
+    router_id: Annotated[Optional[str], Field(description="Scope the search to one speaker's resolved RIB view")] = None,
+    prefix: Prefix = None,
+    vrf: Annotated[Optional[str], Field(description="VPN identifier: VRF name")] = None,
+    rd: Annotated[Optional[str], Field(description="VPN identifier: route distinguisher")] = None,
+    rt: Annotated[Optional[str], Field(description="VPN identifier: route target")] = None,
+    afi: Annotated[Optional[int], Field(description="Address family filter")] = None,
+    safi: Annotated[Optional[int], Field(description="Subsequent address family filter")] = None,
+    bmp_rib: Annotated[Optional[str], Field(description="Filter by RIB tag (e.g. adj-rib-in-pre, loc-rib)")] = None,
+    evidence: Annotated[Optional[str], Field(description="pre_policy, post_policy, loc_rib, or fib")] = None,
+    as_path_contains: Annotated[Optional[str], Field(description="Substring match over the AS path")] = None,
+    origin: Annotated[Optional[str], Field(description="Filter by BGP origin attribute")] = None,
+    local_pref: Annotated[Optional[int], Field(description="Filter by LOCAL_PREF")] = None,
+    med: Annotated[Optional[int], Field(description="Filter by MED")] = None,
+    community: Annotated[Optional[str], Field(description="Filter by standard community")] = None,
+    large_community: Annotated[Optional[str], Field(description="Filter by large community")] = None,
+    extended_community: Annotated[Optional[str], Field(description="Filter by extended community")] = None,
+    label: Annotated[Optional[int], Field(description="Filter by MPLS label")] = None,
+    originator_id: Annotated[Optional[str], Field(description="Filter by ORIGINATOR_ID")] = None,
+    peer_ip: Annotated[Optional[str], Field(description="Filter by peer IP address")] = None,
+    nexthop: Annotated[Optional[str], Field(description="Filter by next hop")] = None,
+    bmp_source: Annotated[Optional[str], Field(description="Ignored when router_id is set")] = None,
+    table_filters: Annotated[Optional[str], Field(description="URL-encoded JSON object keyed by route column, e.g. '{\"communities\":{\"conditions\":[{\"join\":\"and\",\"operator\":\"contains\",\"value\":\"65000:100\"}]}}'. Ignored when router_id is set")] = None,
+    ribs: Annotated[Optional[str], Field(description="Comma-separated exact RIB-tag set to match against the folded policy set, e.g. \"loc-rib,post\"")] = None,
+    sort: Annotated[Optional[str], Field(description="Indexed route column to order by")] = None,
+    order: Annotated[str, Field(description="asc or desc")] = 'asc',
+    page: Page = 1,
+    per_page: PerPage = 50,
 ) -> BgpRoutesResponse:
     """
     Search BGP routes, one row per distinct RFC 4271 9.1 path.
@@ -1336,30 +1203,6 @@ def search_bgp_routes(
         that speaker actually holds, folded on the same path definition; that
         scoped form does not accept bmp_source or table_filters (rib_view is
         already a single table). bmp_source and bmp_ribs come back as arrays.
-
-    Input fields:
-        bgp_graph_time (str): The BGP graph epoch to query
-        router_id (str, optional): Scope the search to one speaker's resolved RIB view
-        prefix (str, optional): CIDR is an exact match; an address returns every
-          covering route, longest prefix first
-        vrf (str, optional), rd (str, optional), rt (str, optional): VPN identifiers
-        afi (int, optional), safi (int, optional): Address family filters
-        bmp_rib (str, optional): Filter by RIB tag (e.g. adj-rib-in-pre, loc-rib)
-        evidence (str, optional): pre_policy, post_policy, loc_rib, or fib
-        as_path_contains (str, optional): Substring match over the AS path
-        origin (str, optional), local_pref (int, optional), med (int, optional)
-        community (str, optional), large_community (str, optional), extended_community (str, optional)
-        label (int, optional), originator_id (str, optional), peer_ip (str, optional), nexthop (str, optional)
-        bmp_source (str, optional): Ignored when router_id is set
-        table_filters (str, optional): URL-encoded JSON object keyed by route column, e.g.
-          '{"communities":{"conditions":[{"join":"and","operator":"contains","value":"65000:100"}]}}'.
-          Ignored when router_id is set.
-        ribs (str, optional): Comma-separated exact RIB-tag set to match against the folded
-          policy set, e.g. "loc-rib,post"
-        sort (str, optional): Indexed route column to order by
-        order (str): asc or desc (default: asc)
-        page (int): Page number, 1-indexed (default: 1)
-        per_page (int): Items per page (default: 50)
 
     Equivalent to GET /bgp-graph/{bgp_graph_time}/routes or
     GET /bgp-graph/{bgp_graph_time}/node/{router_id}/routes.
@@ -1398,7 +1241,10 @@ def search_bgp_routes(
     tags={"read"},
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
 )
-def get_bgp_node_route_summary(bgp_graph_time: str, router_id: str) -> BgpRouteSummary:
+def get_bgp_node_route_summary(
+    bgp_graph_time: BgpGraphTime,
+    router_id: Annotated[str, Field(description="Router ID of the BGP speaker")],
+) -> BgpRouteSummary:
     """
     Route totals for one BGP speaker: its resolved RIB view size, a
     per-RIB-tag histogram, and how many routes it advertised (Adj-RIB-Out).
@@ -1415,13 +1261,12 @@ def get_bgp_node_route_summary(bgp_graph_time: str, router_id: str) -> BgpRouteS
     tags={"read"},
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
 )
-def get_bgp_route_state(bgp_graph_time: str, at: Optional[str] = None) -> dict:
+def get_bgp_route_state(
+    bgp_graph_time: BgpGraphTime,
+    at: Annotated[Optional[str], Field(description="ISO 8601 timestamp; defaults to now")] = None,
+) -> dict:
     """
     Point-in-time BGP route state, reconstructed from stored events.
-
-    Input fields:
-        bgp_graph_time (str): The BGP graph epoch to query
-        at (str, optional): ISO 8601 timestamp; defaults to now
 
     Equivalent to GET /bgp-graph/{bgp_graph_time}/routes/state.
     """
@@ -1439,22 +1284,14 @@ def get_bgp_route_state(bgp_graph_time: str, at: Optional[str] = None) -> dict:
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
 )
 def compare_bgp_routes(
-    bgp_graph_time: str,
-    t0: str,
-    t1: str,
-    router_id: Optional[str] = None,
-    t0_graph_time: Optional[str] = None,
+    bgp_graph_time: Annotated[str, Field(description="The BGP graph epoch to query (the t1 epoch)")],
+    t0: Annotated[str, Field(description="ISO 8601 timestamp, the earlier instant")],
+    t1: Annotated[str, Field(description="ISO 8601 timestamp, the later instant")],
+    router_id: Annotated[Optional[str], Field(description="Scope the diff to one reporting speaker")] = None,
+    t0_graph_time: Annotated[Optional[str], Field(description="Epoch of t0 when it differs from bgp_graph_time (collector restart); must be the same collector")] = None,
 ) -> BgpRouteCompareResponse:
     """
     Diff BGP routes between two instants: one row per differing route.
-
-    Input fields:
-        bgp_graph_time (str): The BGP graph epoch to query (the t1 epoch)
-        t0 (str): ISO 8601 timestamp, the earlier instant
-        t1 (str): ISO 8601 timestamp, the later instant
-        router_id (str, optional): Scope the diff to one reporting speaker
-        t0_graph_time (str, optional): Epoch of t0 when it differs from bgp_graph_time
-          (collector restart); must be the same collector
 
     Output fields:
         dict with key: items (list of BgpRouteDiffRow; diff_status is
@@ -1479,25 +1316,17 @@ def compare_bgp_routes(
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
 )
 def get_bgp_events_timeline(
-    bgp_graph_time: str,
-    start_time: Optional[str] = None,
-    end_time: Optional[str] = None,
-    last_minutes: Optional[int] = None,
-    event_name: Optional[str] = None,
-    event_status: Optional[str] = None,
-    as_rows: bool = False,
+    bgp_graph_time: BgpGraphTime,
+    start_time: StartTime = None,
+    end_time: EndTime = None,
+    last_minutes: Annotated[Optional[int], Field(description="Look back this many minutes from end_time (default now); overrides start_time")] = None,
+    event_name: Annotated[Optional[str], Field(description="Filter by event name")] = None,
+    event_status: Annotated[Optional[str], Field(description="Filter by event status")] = None,
+    as_rows: Annotated[bool, Field(description="Return one flat row per event instead of the timeline aggregate")] = False,
 ) -> dict:
     """
     BGP monitoring events (session up/down, route churn), grouped into a
     timeline by default.
-
-    Input fields:
-        bgp_graph_time (str): The BGP graph epoch to query
-        start_time (str, optional), end_time (str, optional): ISO 8601 window
-        last_minutes (int, optional): Look back this many minutes from end_time
-          (default now); overrides start_time
-        event_name (str, optional), event_status (str, optional): Filters
-        as_rows (bool, optional): Return one flat row per event instead of the timeline aggregate
 
     Equivalent to GET /bgp-graph/{bgp_graph_time}/events.
     """
@@ -1527,7 +1356,7 @@ def get_bgp_events_timeline(
     tags={"read"},
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
 )
-def list_bgp_bindings(bgp_graph_time: str) -> BgpBindingsResponse:
+def list_bgp_bindings(bgp_graph_time: BgpGraphTime) -> BgpBindingsResponse:
     """
     List the BGP-to-IGP graph bindings known for a BGP graph epoch.
 
@@ -1546,7 +1375,10 @@ def list_bgp_bindings(bgp_graph_time: str) -> BgpBindingsResponse:
     tags={"read"},
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
 )
-def get_bgp_binding(bgp_graph_time: str, graph_time: str) -> BgpBinding:
+def get_bgp_binding(
+    bgp_graph_time: BgpGraphTime,
+    graph_time: Annotated[str, Field(description="The IGP graph the BGP epoch is bound to")],
+) -> BgpBinding:
     """
     Fetch one BGP-to-IGP graph binding: which IGP graph this BGP epoch is
     correlated with, and how confidently (matched_rids, source_coverage, state).
@@ -1564,32 +1396,20 @@ def get_bgp_binding(bgp_graph_time: str, graph_time: str) -> BgpBinding:
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
 )
 def resolve_route(
-    graph_time: str,
-    start_node: str,
-    destination: str,
-    rt: Optional[str] = None,
-    vrf: Optional[str] = None,
-    rd: Optional[str] = None,
-    evidence: str = "loc_rib",
-    with_lsps: bool = True,
-    changed_edge_costs: Optional[dict] = None,
+    graph_time: Annotated[str, Field(description="The IGP graph to resolve against")],
+    start_node: Annotated[str, Field(description="Router ID the resolution starts from")],
+    destination: Annotated[str, Field(description="Router ID or free-typed prefix")],
+    rt: Annotated[Optional[str], Field(description="Names the VPN; the only one of rt, vrf and rd that identifies it across PEs")] = None,
+    vrf: Annotated[Optional[str], Field(description="Names the VPN by VRF name")] = None,
+    rd: Annotated[Optional[str], Field(description="Names the VPN by route distinguisher")] = None,
+    evidence: Annotated[str, Field(description="pre_policy, post_policy, loc_rib, or fib: what the answer rests on when start_node's table is not observed directly")] = 'loc_rib',
+    with_lsps: Annotated[bool, Field(description="Let MPLS TE LSPs override the plain IGP path")] = True,
+    changed_edge_costs: Annotated[Optional[dict], Field(description="igraph edge id -> new metric, for what-if cost planning")] = None,
 ) -> dict:
     """
     Resolve the path a router would take to a destination, one row per
     routing decision -- hands off between static/BGP/IGP/LSP whenever one of
     them overrides the plain SPF path.
-
-    Input fields:
-        graph_time (str): The IGP graph to resolve against
-        start_node (str): Router ID the resolution starts from
-        destination (str): Router ID or free-typed prefix
-        rt (str, optional), vrf (str, optional), rd (str, optional): three ways
-          to name one VPN; rt is the only one that identifies it across PEs
-        evidence (str): pre_policy, post_policy, loc_rib (default), or fib --
-          what the answer rests on when start_node's table is not observed directly
-        with_lsps (bool): Let MPLS TE LSPs override the plain IGP path (default: true)
-        changed_edge_costs (dict, optional): igraph edge id -> new metric, for
-          what-if cost planning
 
     Equivalent to POST /graph/{graph_time}/route-resolution/{start_node}.
     """
@@ -1613,14 +1433,14 @@ def resolve_route(
     tags={"read"},
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
 )
-def get_vrf_inventory(graph_time: str, router_id: Optional[str] = None, rd: Optional[str] = None) -> VrfInventoryResponse:
+def get_vrf_inventory(
+    graph_time: GraphTime,
+    router_id: Annotated[Optional[str], Field(description="Filter by router ID")] = None,
+    rd: Annotated[Optional[str], Field(description="Filter by route distinguisher")] = None,
+) -> VrfInventoryResponse:
     """
     Router-scoped VRF inventory as of an IGP graph: names, route
     distinguishers, and per-address-family import/export route targets.
-
-    Input fields:
-        graph_time (str): The IGP graph time
-        router_id (str, optional), rd (str, optional): Filters
 
     Output fields:
         dict with key: items (list of Vrf)
@@ -1643,21 +1463,14 @@ def get_vrf_inventory(graph_time: str, router_id: Optional[str] = None, rd: Opti
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
 )
 def list_vpns(
-    graph_time: str,
-    router_id: Optional[str] = None,
-    page: int = 1,
-    per_page: int = 25,
+    graph_time: GraphTime,
+    router_id: Annotated[Optional[str], Field(description="Scope to one router's resolved RIB view; omit for the fabric-wide list")] = None,
+    page: Page = 1,
+    per_page: PerPage = 25,
 ) -> VpnsResponse:
     """
     Answers "which VNI/VRF exists on which leaf": the fabric-wide VPN/VRF/VNI
     inventory of the BGP epochs bound to this graph, or one router's own view.
-
-    Input fields:
-        graph_time (str): The IGP graph time
-        router_id (str, optional): Scope to one router's resolved RIB view;
-          omit for the fabric-wide list
-        page (int): Page number, 1-indexed (default: 1)
-        per_page (int): Items per page (default: 25)
 
     Output fields:
         VpnsResponse: dict with items (VpnRow: name, route_targets,
@@ -1682,41 +1495,22 @@ def list_vpns(
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
 )
 def get_routes(
-    graph_time: str,
-    router_id: Optional[str] = None,
-    vni: Optional[int] = None,
-    vrf: Optional[str] = None,
-    rt: Optional[str] = None,
-    rd: Optional[str] = None,
-    vtep: Optional[str] = None,
-    prefix: Optional[str] = None,
-    mac: Optional[str] = None,
-    at: Optional[str] = None,
-    page: int = 1,
-    per_page: int = 50,
+    graph_time: Annotated[str, Field(description="The IGP graph time, or the name of your OSPF/IS-IS watcher (Enterprise): the snapshot alive at `at` (or now) is read and named in the answer's graph_time")],
+    router_id: Annotated[Optional[str], Field(description="Scope to one router's resolved RIB view; omit for the whole bound epoch")] = None,
+    vni: Vni = None,
+    vrf: Vrf = None,
+    rt: RouteTarget = None,
+    rd: RouteDistinguisher = None,
+    vtep: Annotated[Optional[str], Field(description="EVPN originating IP or next-hop")] = None,
+    prefix: Prefix = None,
+    mac: Mac = None,
+    at: Annotated[Optional[str], Field(description="Point in time (ISO 8601) instead of current state")] = None,
+    page: Page = 1,
+    per_page: PerPage = 50,
 ) -> dict:
     """
     Answers "where is MAC/IP X", VRF/VNI contents, and hosts behind a leaf:
     routes of the BGP epochs bound to this graph (the latest of every source), current state by default.
-
-    Input fields:
-        graph_time (str): The IGP graph time, or the name of your OSPF/IS-IS
-          watcher (Enterprise): the snapshot alive at `at` (or now) is read and
-          named in the answer's graph_time
-        router_id (str, optional): Scope to one router's resolved RIB view;
-          omit for the whole bound epoch
-        vni (int, optional): EVPN L2VNI
-        vrf (str, optional): VRF name, resolved to its RDs across the bound
-          epoch's own routers
-        rt (str, optional): Any of the route's route targets
-        rd (str, optional): Route distinguisher
-        vtep (str, optional): EVPN originating IP or next-hop
-        prefix (str, optional): CIDR is an exact match; an address returns
-          every covering route, longest prefix first
-        mac (str, optional): EVPN exact match
-        at (str, optional): Point in time (ISO 8601) instead of current state
-        page (int): Page number, 1-indexed (default: 1)
-        per_page (int): Items per page (default: 50)
 
     Output fields:
         dict with items (route rows, current state carries the winning
@@ -1749,33 +1543,22 @@ def get_routes(
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
 )
 def get_route_events(
-    graph_time: str,
-    start_time: Optional[str] = None,
-    end_time: Optional[str] = None,
-    last_minutes: Optional[int] = None,
-    vni: Optional[int] = None,
-    vrf: Optional[str] = None,
-    rt: Optional[str] = None,
-    rd: Optional[str] = None,
-    prefix: Optional[str] = None,
-    mac: Optional[str] = None,
-    page: int = 1,
-    per_page: int = 50,
+    graph_time: GraphTime,
+    start_time: StartTime = None,
+    end_time: Annotated[Optional[str], Field(description="End of the ISO 8601 window")] = None,
+    last_minutes: LastMinutes = None,
+    vni: Vni = None,
+    vrf: Vrf = None,
+    rt: RouteTarget = None,
+    rd: RouteDistinguisher = None,
+    prefix: Prefix = None,
+    mac: Mac = None,
+    page: Page = 1,
+    per_page: PerPage = 50,
 ) -> dict:
     """
     Answers "did MAC/IP X move, from where, when": route event history
     (add/withdraw/MAC-move) of the BGP epochs bound to this graph.
-
-    Input fields:
-        graph_time (str): The IGP graph time
-        start_time (str, optional), end_time (str, optional): ISO 8601 window
-        last_minutes (int, optional): Look back this many minutes; overrides
-          start_time/end_time
-        vni (int, optional), vrf (str, optional), rt (str, optional),
-        rd (str, optional), prefix (str, optional), mac (str, optional): same
-          route filters as get_routes
-        page (int): Page number, 1-indexed (default: 1)
-        per_page (int): Items per page (default: 50)
 
     Output fields:
         dict: route and peer events interleaved by time; a route row carries
