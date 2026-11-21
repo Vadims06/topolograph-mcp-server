@@ -1,0 +1,26 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "com.topolograph/topolograph",
+  "title": "Topolograph",
+  "description": "OSPF and IS-IS topology, paths, failure impact, change events, MPLS TE and BGP from Topolograph",
+  "websiteUrl": "https://topolograph.com",
+  "repository": {
+    "url": "https://github.com/Vadims06/topolograph-mcp-server",
+    "source": "github"
+  },
+  "version": "1.7.0",
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://topolograph.com/mcp",
+      "headers": [
+        {
+          "name": "Authorization",
+          "description": "Bearer <API token created in Topolograph>",
+          "isRequired": true,
+          "isSecret": true
+        }
+      ]
+    }
+  ]
+}
