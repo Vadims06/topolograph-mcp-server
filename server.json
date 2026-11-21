@@ -8,7 +8,16 @@
     "url": "https://github.com/Vadims06/topolograph-mcp-server",
     "source": "github"
   },
-  "version": "1.7.0",
+  "version": "1.8.0",
+  "icons": [
+    {
+      "src": "https://raw.githubusercontent.com/Vadims06/topolograph-mcp-server/main/icon.png",
+      "mimeType": "image/png",
+      "sizes": [
+        "256x256"
+      ]
+    }
+  ],
   "remotes": [
     {
       "type": "streamable-http",
@@ -16,8 +25,8 @@
       "headers": [
         {
           "name": "Authorization",
-          "description": "Bearer <API token created in Topolograph>",
-          "isRequired": true,
+          "description": "Bearer <API token created in Topolograph>; without it the client signs in through OAuth",
+          "isRequired": false,
           "isSecret": true
         }
       ]
