@@ -80,6 +80,8 @@ claude mcp add --transport http -s user topolograph https://topolograph.com/mcp
 codex mcp add topolograph --url https://topolograph.com/mcp && codex mcp login topolograph
 ```
 
+Running Claude Code or Codex on a remote machine? After you approve access, the browser opens a `localhost` address that fails on your computer. Copy that address and run `curl '<address>'` on the remote machine to finish sign-in.
+
 With `TOPOLOGRAPH_PUBLIC_URL` set, a request without a valid token gets `401` with a `WWW-Authenticate` challenge pointing to `/.well-known/oauth-protected-resource/mcp`; an API token in `Authorization: Bearer` keeps working. Unset, the server forwards the caller's token as before. The reverse proxy must route `/.well-known/oauth-protected-resource/mcp` to this server next to `/mcp`.
 
 Create an API token in Topolograph, then export it and register the server (replace the URL with your MCP address):
