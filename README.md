@@ -162,6 +162,12 @@ full field reference and the `pattern` ↔ graph-status mapping, see the docs:
 
 ➡️ **[Events Timeline (Waves)](https://docs.topolograph.com/monitoring/events-timeline/)**
 
+## Releasing
+
+1. Set `version` in `server.json` to the new `X.Y.Z`. The server reports this version too.
+2. Push tag `vX.Y.Z`. CI publishes the Docker image and lists the version in the [MCP Registry](https://registry.modelcontextprotocol.io/v0/servers?search=com.topolograph); a tag that differs from `server.json` fails the job.
+3. If the skill changed, publish it to ClawHub: `clawhub publish .agents/skills/topolograph --version <next>`.
+
 ## License
 
 See LICENSE file for details.
