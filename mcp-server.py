@@ -918,8 +918,9 @@ def get_what_if(
         failed_nodes; "if link R1-R2 goes down" uses failed_edges; "if I set
         the cost of R1-R2 to 1" uses changed_edge_costs. A link is named by
         edge_key from get_edges(src_node, dst_node). An edge_key names one
-        direction, so changing both directions needs both keys, and parallel
-        links have different keys. This is a simulation only and does not
+        direction: "the cost between A and B" means both directions, so pass
+        both keys; one direction only for "from A to B". Parallel links have
+        different keys. This is a simulation only and does not
         mutate the graph.
 
     Output fields:
