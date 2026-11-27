@@ -107,12 +107,13 @@ npx skills add Vadims06/topolograph-mcp-server --skill topolograph
 - `get_network_by_graph_time`: Query network information; `filter_type` (all, backuped_only, non_backuped_only) lists networks by backup status; optional `at` gives the state at a moment
 - `get_graph_status`: Check graph health and connectivity
 - `get_network_events`: Retrieve network up/down events
-- `get_adjacency_events`: Get node/host and link events
+- `get_adjacency_events`: Get node/host, link, and SRv6 locator/End.X events (`srv6_events`)
 - `get_events_timeline`: Node/host and adjacency events grouped into time waves for incident narration (metric changes are not waves)
 - `get_nodes`: Query diagram nodes (filter by role flags: ABR/ASBR, IS-IS overload/attached; optional `at`); `protocol="bgp"` with `vni`, `vrf` or `rt` lists the leaves (VTEPs) that carry that VNI, VRF or route target
 - `get_edges`: Query diagram edges (`include=["lsp_left_bw", "lsps", "is_te_link", "edge_key"]` for MPLS TE fields; `is_te_link=true|false` keeps only TE links or only the rest; optional `at`)
 - `get_lsps`: List/inspect MPLS TE LSP tunnels (filters: `status`, `via_node`, `via_edge`, `via_edge_key`)
 - `get_shortest_path`: Calculate the shortest path between two nodes (`with_lsps=true` to account for autoroute-enabled MPLS-TE tunnels); `dst_node` may be a list of targets, such as every VTEP of a VNI, answered from one SPF; `src_node` or `dst_node` with a "/" is an IP or network (a host is `x.x.x.x/32`); `failed_edges` (edge_key), `failed_nodes` or `changed_edge_costs` (edge_key -> cost) give the backup path, simulation only; a list `src_node` gives the union of paths between two sets of routers; optional `at` uses the graph state at that moment
+- `get_what_if`: Predict the whole-network reaction to failed routers, failed links, directed link-cost changes, or a combination; use `edge_key` values from `get_edges`; simulation only
 - `get_cspf_path`: Constrained-shortest-path (CSPF) feasibility check between two nodes; never mutates the graph; optional `level` (1 or 2) restricts an IS-IS path to one level
 - `get_node_failure_reaction`: Predict whole-network impact if one or more routers go down; simulation only
 - `get_edge_failure_reaction`: Predict whole-network impact if one or more links go down; simulation only
