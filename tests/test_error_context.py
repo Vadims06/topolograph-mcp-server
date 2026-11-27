@@ -107,3 +107,30 @@ def test_an_events_refusal_reaches_the_agent_with_the_server_text(server, monkey
         getattr(server, tool).fn(graph_time="g1")
 
     assert str(raised.value) == f"{REFUSAL} in graph_time g1"
+
+
+def test_adjacency_events_pass_through_srv6_events(server, monkeypatch):
+    srv6_events = [
+        {"event_name": "srv6_locator", "event_object": "2001:db8:1::/48", "algorithm": 0},
+        {"event_name": "srv6_end_x", "event_object": "R2", "sid": "2001:db8:1::1"},
+    ]
+    payload = {
+        "all_host_up_down_events": [],
+        "single_host_up_events": [],
+        "single_host_down_events": [],
+        "adjacency_cost_change_events": [],
+        "srv6_events": srv6_events,
+    }
+
+    class AdjacencyResponse:
+        ok = True
+        text = ""
+
+        def json(self):
+            return payload
+
+    monkeypatch.setattr(server, "require_watcher_graph", lambda _graph_time: None)
+    monkeypatch.setattr(server.requests, "get", lambda *_args, **_kwargs: AdjacencyResponse())
+
+    assert "srv6_events" in server.AdjacencyEventsResponse.__annotations__
+    assert server.get_adjacency_events.fn(graph_time="g1")["srv6_events"] == srv6_events

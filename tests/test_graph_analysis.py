@@ -32,6 +32,51 @@ def test_an_analysis_tool_calls_its_public_path(server, stub_response, monkeypat
     assert sent == {"url": "http://topolograph.test/api" + url, **expected}
 
 
+@pytest.mark.parametrize("kwargs, expected", [
+    (
+        {"failed_nodes": ["R5"], "changed_edge_costs": {"k1": 10, "k2": 20}},
+        {
+            "json": {
+                "failed_nodes": ["R5"],
+                "changed_costs": [{"edge_key": "k1", "cost": 10}, {"edge_key": "k2", "cost": 20}],
+                "shared_media": False,
+            },
+            "params": {},
+        },
+    ),
+    (
+        {"failed_edges": ["k1"], "at": "2026-11-01T10:00:00Z"},
+        {"json": {"failed_edges": ["k1"], "shared_media": False},
+         "params": {"at": "2026-11-01T10:00:00Z"}},
+    ),
+])
+def test_get_what_if_calls_the_whole_network_analysis(server, stub_response, monkeypatch, kwargs, expected):
+    sent = {}
+
+    def fake_post(url, **call_kwargs):
+        sent.update(url=url, **{key: value for key, value in call_kwargs.items() if key != "headers"})
+        return stub_response
+
+    monkeypatch.setattr(server.requests, "post", fake_post)
+    monkeypatch.setattr(server, "get_auth_headers", lambda: {})
+    server.get_what_if.fn(graph_time="g1", **kwargs)
+
+    assert sent == {
+        "url": "http://topolograph.test/api/graph/g1/analyse/what-if",
+        **expected,
+    }
+
+
+def test_get_what_if_refuses_an_empty_change(server, monkeypatch):
+    def unexpected_post(*_args, **_kwargs):
+        pytest.fail("request must not be sent")
+
+    monkeypatch.setattr(server.requests, "post", unexpected_post)
+
+    with pytest.raises(ValueError, match="at least one"):
+        server.get_what_if.fn(graph_time="g1")
+
+
 @pytest.mark.parametrize("kwargs", [
     {"src_node": "R1", "dst_node": "R4", "with_lsps": True, "failed_nodes": ["R2"]},
     {"src_node": "R1", "dst_node": ["R4", "R5"], "failed_edges": ["k1"]},

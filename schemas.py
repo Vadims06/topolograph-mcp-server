@@ -93,6 +93,7 @@ class AdjacencyEventsResponse(TypedDict):
     single_host_up_events: List[HostUpDownEvent]
     single_host_down_events: List[HostUpDownEvent]
     adjacency_cost_change_events: List[LinkMetricChangeEvent]
+    srv6_events: NotRequired[List[dict]]
 
 
 class TimelineWave(TypedDict):
@@ -300,4 +301,3 @@ class VpnsResponse(TypedDict):
     evidence: NotRequired[str]  # loc_rib, adj_rib_in, loc_rib_reflected, adj_rib_out
     can_build_path: NotRequired[bool]
     assumptions: NotRequired[List[str]]
-

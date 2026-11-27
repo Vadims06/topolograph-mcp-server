@@ -460,6 +460,7 @@ def get_adjacency_events(
     Description:
         This tool returns links/adjacencies events including nodes/hosts up/down events.
         Use this tool only to get details about nodes/hosts events.
+        SRv6 locator and End.X changes are also returned here in srv6_events.
         Events exist ONLY for watcher-monitored graphs (is_monitored=true).
         Manually uploaded or YAML graphs are not monitored and have no events;
         first call get_all_graphs(is_monitored=true, latest_only=true) to pick a
@@ -472,6 +473,7 @@ def get_adjacency_events(
             - single_host_up_events: List of Up nodes/hosts events (Восстановление узла) from the time when graph was collected.
             - single_host_down_events: List of Down nodes/hosts events (Падение узла) from the time when graph was collected.
             - adjacency_cost_change_events: List of link/adjacency cost (or other metrics) change events  (изменение стоимости линка)
+            - srv6_events: SRv6 locator changes (event_name srv6_locator, locator prefix and algorithm) and End.X changes (event_name srv6_end_x, neighbor router, SID, optional LAN neighbor System ID and local/remote IP addresses). Common fields identify the advertising router, status, level and topology; changed events include attribute/old_value/new_value, and non-down events include item.
 
     Equivalent to GET /events/{graph_time}/adjacency.
     """
@@ -820,7 +822,7 @@ def get_shortest_path(
 
     Description:
         Plain IGP shortest path by default. For "what if this link is down"
-        backup-path analysis, use get_edge_failure_reaction instead -- that
+        backup-path analysis, use get_what_if instead -- that
         question now has its own endpoint (whole-network impact, not just a
         recomputed path). Several dst_node values run one SPF from src_node and
         return a cost/path per target plus the union of every target's edges
@@ -845,7 +847,7 @@ def get_shortest_path(
     GET /graph/{graph_time}/path/network, POST /graph/{graph_time}/analyse/spt-edge-failure
     or POST /graph/{graph_time}/analyse/underlay.
     """
-    changed_costs = [{"edge_key": key, "cost": cost} for key, cost in (changed_edge_costs or {}).items()]
+    changed_costs = _get_changed_costs(changed_edge_costs)
     failures = {name: value for name, value in
                 {"failed_edges": failed_edges, "failed_nodes": failed_nodes, "changed_costs": changed_costs}.items()
                 if value}
@@ -887,6 +889,68 @@ def get_shortest_path(
         params["at"] = at
 
     resp = requests.get(url, params=params, headers=get_auth_headers())
+    raise_for_status_with_context(resp, graph_time)
+    return resp.json()
+
+
+def _get_changed_costs(changed_edge_costs: Optional[dict]) -> list[dict]:
+    return [{"edge_key": key, "cost": cost} for key, cost in (changed_edge_costs or {}).items()]
+
+
+@mcp.tool(
+    tags={"read"},
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
+)
+def get_what_if(
+    graph_time: GraphTime,
+    failed_edges: Annotated[Optional[List[str]], Field(description="edge_key values from get_edges for links that go down in both directions; parallel links have different edge_key values")] = None,
+    failed_nodes: Annotated[Optional[List[str]], Field(description="Router names, hostnames or IS-IS System IDs of routers that fail")] = None,
+    changed_edge_costs: Annotated[Optional[dict], Field(description="edge_key -> new cost of that one direction; changing both directions requires both edge_key values from get_edges(src_node, dst_node)")] = None,
+    shared_media: Annotated[bool, Field(description="If true, failing one link on a multi-access segment fails every adjacency on that segment")] = False,
+    at: Annotated[Optional[str], Field(description="ISO 8601 moment whose watcher-derived graph state is the simulation baseline")] = None,
+) -> dict:
+    """
+    Predict the whole-network reaction to topology or link-cost changes.
+
+    Description:
+        Use this for routers failing, links failing, or directed link costs
+        changing, alone or together. "What happens if R5 fails" uses
+        failed_nodes; "if link R1-R2 goes down" uses failed_edges; "if I set
+        the cost of R1-R2 to 1" uses changed_edge_costs. A link is named by
+        edge_key from get_edges(src_node, dst_node). An edge_key names one
+        direction, so changing both directions needs both keys, and parallel
+        links have different keys. This is a simulation only and does not
+        mutate the graph.
+
+    Output fields:
+        dict with result, nodes and edges:
+            - result: connected, more_traffic and less_traffic (numbers of
+              links that gain or lose shortest paths), pairs (total, changed
+              and unreachable router pairs), and parts
+            - nodes: per-node effects
+            - edges: per-link shortest-path counts before and after the changes
+
+    Equivalent to POST /graph/{graph_time}/analyse/what-if.
+    """
+    changed_costs = _get_changed_costs(changed_edge_costs)
+    changes = {
+        name: value for name, value in {
+            "failed_edges": failed_edges,
+            "failed_nodes": failed_nodes,
+            "changed_costs": changed_costs,
+        }.items() if value
+    }
+    if not changes:
+        raise ValueError("at least one of failed_edges, failed_nodes or changed_edge_costs must be non-empty")
+
+    url = f"{API_BASE}/graph/{graph_time}/analyse/what-if"
+    body = {**changes, "shared_media": shared_media}
+    resp = requests.post(
+        url,
+        json=body,
+        params={"at": at} if at else {},
+        headers=get_auth_headers(),
+    )
     raise_for_status_with_context(resp, graph_time)
     return resp.json()
 
@@ -966,6 +1030,7 @@ def get_node_failure_reaction(
         Whether the graph stays connected and which links see more or less
         traffic once these routers fail. A simulation only: nothing is
         changed in the graph.
+        For link cost changes or several kinds of change at once, use get_what_if.
 
     Output fields:
         NetworkReactionResponse: the same keys as get_edge_failure_reaction.
@@ -997,6 +1062,7 @@ def get_edge_failure_reaction(
         rerouting pattern (which links see more/less traffic). This is a
         simulation only: it does not fail any link or otherwise mutate the
         graph.
+        For link cost changes or several kinds of change at once, use get_what_if.
 
     Output fields:
         NetworkReactionResponse: dict with keys:
